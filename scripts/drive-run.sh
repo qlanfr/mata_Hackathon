@@ -4,8 +4,10 @@
 #
 #   BASE_URL=https://aiops-edge.<subdomain>.workers.dev ADMIN_TOKEN=... scripts/drive-run.sh
 #
-# Exits non-zero unless the run reaches COMPLETED with a VERIFIED trial. Polling also keeps the
-# Cloudflare containers awake while the run is in progress.
+# By default it exits non-zero unless the run reaches COMPLETED with a VERIFIED trial. With
+# ACCEPT=finished, COMPLETED or EXHAUSTED both pass: a real model may legitimately finish without a
+# verified change. EXPECT_PROVIDER (for example `meta:muse-spark-1.3` or `replay`) fails the run
+# check when aiopsd used another provider. Polling also keeps the Cloudflare containers awake.
 set -euo pipefail
 
 : "${BASE_URL:?set BASE_URL, e.g. http://127.0.0.1:18090}"
@@ -99,8 +101,8 @@ while True:
 json.dump(events, open(f"{out}/events.json", "w"), ensure_ascii=False, indent=1)
 PY
 
-python3 - "$OUT" <<'PY'
-import json, sys
+ACCEPT="${ACCEPT:-verified}" EXPECT_PROVIDER="${EXPECT_PROVIDER:-}" python3 - "$OUT" <<'PY'
+import json, os, sys
 out = sys.argv[1]
 detail = json.load(open(f"{out}/run.json"))
 events = json.load(open(f"{out}/events.json"))
@@ -116,7 +118,15 @@ for t in detail["trials"]:
     ev = t["evaluation"] or {}
     imp = [f"{x:.1%}" for x in ev.get("improvements") or []]
     print(f"trial {t['seq']}: {t['status']} {t['outcome']} improvements={imp} reasons={ev.get('reasons')}")
-ok = run["state"] == "COMPLETED" and any(t["outcome"] == "VERIFIED" for t in detail["trials"])
-print("\nRESULT:", "PASS" if ok else "FAIL")
+verified = run["state"] == "COMPLETED" and any(t["outcome"] == "VERIFIED" for t in detail["trials"])
+if os.environ["ACCEPT"] == "finished":
+    ok = run["state"] in ("COMPLETED", "EXHAUSTED")
+else:
+    ok = verified
+want = os.environ["EXPECT_PROVIDER"]
+if want and run["provider"] != want:
+    print(f"\nprovider is {run['provider']}, expected {want}")
+    ok = False
+print("\nRESULT:", "PASS" if ok else "FAIL", f"(accept={os.environ['ACCEPT']}, verified={verified})")
 sys.exit(0 if ok else 1)
 PY

@@ -108,20 +108,38 @@ jobs:
         id: deploy
         run: |
           mkdir -p ../.work
-          npx wrangler deploy 2>&1 | tee ../.work/deploy.log
+          # Secrets go up with the new version, so a container never starts without them.
+          secrets="$RUNNER_TEMP/worker-secrets.json"
+          (umask 077 && python3 - "$secrets" <<'PY'
+          import json, os, sys
+          s = {"ADMIN_TOKEN": os.environ["ADMIN_TOKEN"]}
+          if os.environ.get("META_API_KEY"):
+              s["META_API_KEY"] = os.environ["META_API_KEY"]
+          json.dump(s, open(sys.argv[1], "w"))
+          PY
+          )
+          status=0
+          npx wrangler deploy --secrets-file "$secrets" 2>&1 | tee ../.work/deploy.log || status=$?
+          rm -f "$secrets"
+          [ "$status" = 0 ] || exit "$status"
           url=$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' ../.work/deploy.log | head -1 || true)
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Worker URL: ${url:-not found in the wrangler output}" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Set Worker secrets
-        run: |
-          printf '%s' "$ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN
-          if [ -n "$META_API_KEY" ]; then printf '%s' "$META_API_KEY" | npx wrangler secret put META_API_KEY; fi
+          # What the full run should look like: a real model may legitimately finish without a
+          # verified change, so it only has to finish; replay must reach VERIFIED.
+          model=$(python3 -c 'import re,sys; m=re.search(r"\"META_MODEL\":\s*\"([^\"]*)\"", open("wrangler.jsonc").read()); print(m.group(1) if m else "")')
+          if [ -n "$model" ] && [ -n "$META_API_KEY" ]; then
+            echo "provider=meta:$model" >> "$GITHUB_OUTPUT"; echo "accept=finished" >> "$GITHUB_OUTPUT"
+          else
+            echo "provider=replay" >> "$GITHUB_OUTPUT"; echo "accept=verified" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Full run on Cloudflare
         if: (github.event_name == 'push' || inputs.run_e2e) && steps.deploy.outputs.url != ''
         env:
           BASE_URL: ${{ steps.deploy.outputs.url }}
+          EXPECT_PROVIDER: ${{ steps.deploy.outputs.provider }}
+          ACCEPT: ${{ steps.deploy.outputs.accept }}
           OUT: ${{ github.workspace }}/.work/cf-e2e
           STARTUP_S: "900"
           TIMEOUT_S: "3000"
