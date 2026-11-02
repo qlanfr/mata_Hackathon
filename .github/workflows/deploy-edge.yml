@@ -1,7 +1,7 @@
 name: Deploy edge
 
-# Runs on demand or when a deploy-* tag is pushed. Applies the D1 migrations, builds both
-# container images (Docker is available on GitHub runners), deploys the Worker, sets its secrets
+# Runs on demand or when a push changes .github/deploy-request. Applies the D1 migrations,
+# builds both container images (Docker is available on GitHub runners), deploys the Worker, sets its secrets
 # and, unless turned off, drives one full run on the deployed URL with scripts/drive-run.sh.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, ADMIN_TOKEN (16+ characters),
@@ -13,11 +13,11 @@ on:
         description: Run one full run on the deployed Worker after deploying
         type: boolean
         default: true
-  # Pushing a tag named deploy-* also deploys (with the full run). This lets automation that
-  # can push but cannot dispatch workflows start a deploy.
+  # A push that changes .github/deploy-request also deploys (with the full run). This lets
+  # automation that can push to the branch but cannot dispatch workflows start a deploy.
   push:
-    tags:
-      - deploy-*
+    paths:
+      - .github/deploy-request
 
 concurrency:
   group: deploy-edge
