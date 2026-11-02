@@ -33,25 +33,52 @@ until get "$BASE_URL/api/v1/runs" > "$OUT/runs-before.json" 2> "$OUT/startup.err
 done
 echo "API ready after $(( $(date +%s) - started ))s"
 
-run_id=$(curl -fsS -m 60 -X POST "$BASE_URL/api/v1/runs" ${auth[@]+"${auth[@]}"} \
-  -H 'content-type: application/json' -d '{}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')
-echo "run $run_id  ($BASE_URL/runs/$run_id)"
+# One more run is started in exactly two cases, both about the environment rather than the change:
+# - Right after a deploy, old containers can still serve while new ones roll out. If the rollout
+#   changed the scenario, aiopsd stops the run ("scenario changed during the run").
+# - Every trial was INCONCLUSIVE (the machine was too noisy to judge) and the run ran out of
+#   candidates. A second noisy run still fails.
+for attempt in 1 2; do
+  run_id=$(curl -fsS -m 60 -X POST "$BASE_URL/api/v1/runs" ${auth[@]+"${auth[@]}"} \
+    -H 'content-type: application/json' -d '{}' \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')
+  echo "run $run_id  ($BASE_URL/runs/$run_id)"
 
-started=$(date +%s)
-last=""
-while true; do
-  elapsed=$(( $(date +%s) - started ))
-  if get "$BASE_URL/api/v1/runs/$run_id" > "$OUT/run.json.tmp" 2> "$OUT/poll.err"; then
-    mv "$OUT/run.json.tmp" "$OUT/run.json"
-    state=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["run"]["state"])' "$OUT/run.json")
-    if [ "$state" != "$last" ]; then echo "[${elapsed}s] $state"; last=$state; fi
-    case "$state" in COMPLETED|EXHAUSTED|FAILED|CANCELLED) break ;; esac
-  else
-    echo "[${elapsed}s] poll failed: $(cat "$OUT/poll.err")"
+  started=$(date +%s)
+  last=""
+  while true; do
+    elapsed=$(( $(date +%s) - started ))
+    if get "$BASE_URL/api/v1/runs/$run_id" > "$OUT/run.json.tmp" 2> "$OUT/poll.err"; then
+      mv "$OUT/run.json.tmp" "$OUT/run.json"
+      state=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["run"]["state"])' "$OUT/run.json")
+      if [ "$state" != "$last" ]; then echo "[${elapsed}s] $state"; last=$state; fi
+      case "$state" in COMPLETED|EXHAUSTED|FAILED|CANCELLED) break ;; esac
+    else
+      echo "[${elapsed}s] poll failed: $(cat "$OUT/poll.err")"
+    fi
+    if [ "$elapsed" -gt "$TIMEOUT_S" ]; then echo "FAIL: timed out in state $last" >&2; exit 1; fi
+    sleep "$POLL_S"
+  done
+
+  if [ "$attempt" = 1 ]; then
+    retry=$(python3 - "$OUT/run.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+run, trials = d["run"], d["trials"]
+if run["state"] == "FAILED" and "scenario changed during the run" in (run["error"] or ""):
+    print("the scenario changed during the rollout")
+elif run["state"] == "EXHAUSTED" and trials and all(t["outcome"] == "INCONCLUSIVE" for t in trials):
+    print("every trial was INCONCLUSIVE (noisy machine)")
+PY
+)
+    if [ -n "$retry" ]; then
+      echo "$retry; starting one more run"
+      cp "$OUT/run.json" "$OUT/run-attempt1.json"
+      sleep 30
+      continue
+    fi
   fi
-  if [ "$elapsed" -gt "$TIMEOUT_S" ]; then echo "FAIL: timed out in state $last" >&2; exit 1; fi
-  sleep "$POLL_S"
+  break
 done
 
 # Collect every event page.

@@ -55,6 +55,8 @@ pub struct Run {
     pub aa_noise: Option<f64>,
     pub baseline_artifact_id: Option<String>,
     pub observation: Option<Value>,
+    /// The scenario the run was created for. Every runner report must match it.
+    pub scenario_hash: String,
 }
 
 impl Run {
@@ -70,6 +72,7 @@ impl Run {
             aa_noise: row.f64_opt("aa_noise"),
             baseline_artifact_id: row.opt_str("baseline_artifact_id"),
             observation: Some(row.json("observation")).filter(|v| !v.is_null()),
+            scenario_hash: row.str("scenario_hash"),
         })
     }
 }
@@ -628,6 +631,9 @@ impl App {
             .artifacts
             .put_json(&run.id, "baseline_report", &result)
             .await?;
+        if let Some(reason) = scenario_mismatch(run, &report.scenario_hash) {
+            return self.fail(run, &reason, None).await;
+        }
         if let Some(err) = &report.execution_error {
             return self
                 .fail(run, &format!("baseline failed: {err}"), None)
@@ -677,6 +683,9 @@ impl App {
             .artifacts
             .put_json(&run.id, "trial_report", &result)
             .await?;
+        if let Some(reason) = scenario_mismatch(run, &report.scenario_hash) {
+            return self.fail(run, &reason, None).await;
+        }
         let evaluation = evaluator::evaluate(&self.spec.contract, &report, run.aa_noise);
         let outcome = serde_json::to_value(evaluation.outcome)?;
         let trial = self
@@ -1153,6 +1162,19 @@ fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A runner report measured against a different scenario than the run was created for (for
+/// example, a deploy changed the golden cases while the run was in progress). Its results cannot
+/// be attributed to the run's scenario, so the run stops instead of recording them.
+fn scenario_mismatch(run: &Run, reported: &str) -> Option<String> {
+    (reported != run.scenario_hash).then(|| {
+        format!(
+            "scenario changed during the run: the runner measured scenario {} but the run was created for {}; start a new run",
+            &reported[..reported.len().min(12)],
+            &run.scenario_hash[..run.scenario_hash.len().min(12)]
+        )
+    })
+}
+
 /// The statements of one state transition, run as a single batch (one transaction):
 /// the compare-and-set UPDATE, the guard that aborts the batch when the UPDATE matched nothing
 /// (`migrations/0003_cas_guard.sql`), the caller's follow-up statements, and the state event.
@@ -1260,7 +1282,18 @@ mod tests {
             aa_noise: None,
             baseline_artifact_id: None,
             observation: None,
+            scenario_hash: "s1".into(),
         }
+    }
+
+    #[test]
+    fn reports_from_another_scenario_are_refused() {
+        assert_eq!(scenario_mismatch(&run_at(0), "s1"), None);
+        let reason = scenario_mismatch(&run_at(0), "s2").unwrap();
+        assert!(
+            reason.contains("scenario changed during the run"),
+            "{reason}"
+        );
     }
 
     #[tokio::test]

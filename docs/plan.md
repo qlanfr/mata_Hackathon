@@ -285,6 +285,12 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
 - seed를 시뮬레이션해 보면 순서가 다른 주문은 6만 개 중 2,040개다. 부하 측정 사용자 2,000명 중 68명의 첫 페이지에 이런 주문이 있다.
 - 순서가 모두 섞인 user 82의 페이지를 golden 케이스(`items-not-in-product-order`)로 추가했다. 이제 이 오답은 REJECTED된다. 기존 golden 11개의 정답 파일은 재생성 후에도 바뀌지 않았다.
 
+12개 세트를 배포하면서 재현성 기록의 빈틈도 드러났다.
+- 롤아웃 중 옛 aiopsd가 run을 만들었고, 측정은 새 runner가 했다.
+- 그 결과 run에는 옛 시나리오 해시(`dec57cc5404d`, 11개)가 기록됐고, runner 보고서에는 새 해시(`939f0d479f38`, 12개)가 찍혔다. 판정은 VERIFIED였다.
+- 수정: aiopsd가 runner 보고서의 시나리오 해시를 run의 해시와 대조한다. 다르면 "scenario changed during the run"으로 run을 멈춘다.
+- `scripts/drive-run.sh`는 이 경우와 "모든 trial이 INCONCLUSIVE라 EXHAUSTED"인 경우에만 새 run을 한 번 더 시작한다. 두 번째 경우는 GitHub 러너에서 trial 내 baseline 편차가 28%와 46%로 나와 Container E2E가 실패했던 일 때문이다. 이때 잘못된 VERIFIED는 없었다.
+
 오류율 함정이 golden을 통과하는 이유: 상품 1000은 golden 페이지에 한 번도 나오지 않는다. 부하 측정에서는 2,000명 중 6명의 첫 페이지에 나오며, seed 시뮬레이션으로 미리 계산했다. 측정된 오류율 0.30%는 이 6/2,000과 일치한다.
 
 ## 검증 방법
