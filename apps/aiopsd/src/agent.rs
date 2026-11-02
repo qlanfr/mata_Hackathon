@@ -132,6 +132,14 @@ pub async fn run_role<T: Structured>(
         .await;
 
         if !calls.is_empty() {
+            // Models often say what they are about to do before calling tools. That text is not
+            // an answer; it stays in the conversation, ahead of the calls, as it was produced.
+            if !text.trim().is_empty() {
+                input.push(Item::Message {
+                    role: "assistant".into(),
+                    content: text.clone(),
+                });
+            }
             for (call_id, name, arguments) in calls {
                 if usage.tool_calls >= limits.max_tool_calls {
                     return Err(AgentError::Budget(format!(

@@ -21,6 +21,13 @@ jobs:
           META_API_KEY: ${{ secrets.META_API_KEY }}
         run: |
           if [ -z "$META_API_KEY" ]; then echo "::error::Repository secret META_API_KEY is not set"; exit 1; fi
+      - name: List the models this key can use
+        env:
+          META_API_KEY: ${{ secrets.META_API_KEY }}
+        run: |
+          curl -sS -H "Authorization: Bearer $META_API_KEY" https://api.meta.ai/v1/models \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(m.get("id"), m.get("owned_by", "")) for m in d.get("data", [])] if isinstance(d, dict) and "data" in d else print(json.dumps(d)[:500])' \
+            | tee -a "$GITHUB_STEP_SUMMARY" || true
       - name: Build aiopsd
         run: cargo build --release --locked -p aiopsd
       - name: Contract test

@@ -246,56 +246,67 @@ pub async fn contract_test(meta: &MetaProvider) -> anyhow::Result<()> {
             resp.items.len(),
             resp.usage
         );
-        let mut called = false;
-        for item in &resp.items {
-            match item {
-                Item::FunctionCall {
-                    call_id,
-                    name,
-                    arguments,
-                } => {
-                    println!("  function_call {name}({arguments}) call_id={call_id}");
-                    anyhow::ensure!(name == "lookup_order_count", "unexpected tool `{name}`");
-                    anyhow::ensure!(!call_id.is_empty(), "function_call without call_id");
-                    let args: Value = serde_json::from_str(arguments)
-                        .context("function_call arguments are not JSON")?;
-                    anyhow::ensure!(args["user_id"] == json!(42), "tool called with {args}");
-                    input.push(item.clone());
-                    input.push(Item::FunctionCallOutput {
-                        call_id: call_id.clone(),
-                        output: json!({ "user_id": 42, "order_count": 30 }).to_string(),
-                    });
-                    called = true;
-                }
-                Item::Message { content, .. } => {
-                    println!("  message: {}", truncate(content, 300));
-                    if called {
-                        continue;
-                    }
-                    let answer: Value = serde_json::from_str(content)
-                        .context("final answer is not JSON (text.format json_schema ignored?)")?;
-                    anyhow::ensure!(
-                        answer["user_id"] == json!(42) && answer["order_count"] == json!(30),
-                        "answer does not match the schema or the tool output: {answer}"
-                    );
-                    anyhow::ensure!(
-                        input
-                            .iter()
-                            .any(|i| matches!(i, Item::FunctionCallOutput { .. })),
-                        "the model answered without calling the tool"
-                    );
-                    println!(
-                        "contract test passed: tool round trip and JSON-schema answer ({usage:?})"
-                    );
-                    return Ok(());
-                }
-                Item::FunctionCallOutput { .. } => {}
-            }
+        // Same rule as the agent loop: a response with any function call is a tool turn (text
+        // next to it is commentary); a response without one is the final answer.
+        let calls: Vec<&Item> = resp
+            .items
+            .iter()
+            .filter(|i| matches!(i, Item::FunctionCall { .. }))
+            .collect();
+        let text: String = resp
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Message { content, .. } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect();
+        if !text.is_empty() {
+            println!("  message: {}", truncate(&text, 300));
         }
-        anyhow::ensure!(
-            called,
-            "turn {turn} returned neither a tool call nor an answer"
-        );
+        if calls.is_empty() {
+            let answer: Value = serde_json::from_str(&text)
+                .context("final answer is not JSON (text.format json_schema ignored?)")?;
+            anyhow::ensure!(
+                answer["user_id"] == json!(42) && answer["order_count"] == json!(30),
+                "answer does not match the schema or the tool output: {answer}"
+            );
+            anyhow::ensure!(
+                input
+                    .iter()
+                    .any(|i| matches!(i, Item::FunctionCallOutput { .. })),
+                "the model answered without calling the tool"
+            );
+            println!("contract test passed: tool round trip and JSON-schema answer ({usage:?})");
+            return Ok(());
+        }
+        if !text.trim().is_empty() {
+            input.push(Item::Message {
+                role: "assistant".into(),
+                content: text.clone(),
+            });
+        }
+        for item in calls {
+            let Item::FunctionCall {
+                call_id,
+                name,
+                arguments,
+            } = item
+            else {
+                continue;
+            };
+            println!("  function_call {name}({arguments}) call_id={call_id}");
+            anyhow::ensure!(name == "lookup_order_count", "unexpected tool `{name}`");
+            anyhow::ensure!(!call_id.is_empty(), "function_call without call_id");
+            let args: Value =
+                serde_json::from_str(arguments).context("function_call arguments are not JSON")?;
+            anyhow::ensure!(args["user_id"] == json!(42), "tool called with {args}");
+            input.push(item.clone());
+            input.push(Item::FunctionCallOutput {
+                call_id: call_id.clone(),
+                output: json!({ "user_id": 42, "order_count": 30 }).to_string(),
+            });
+        }
     }
     anyhow::bail!("no final answer after 4 turns")
 }

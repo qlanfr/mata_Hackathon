@@ -1,4 +1,3 @@
 # Model IDs for the Meta contract workflow (.github/workflows/meta-contract.yml), one per line.
 # Changing this file on a push runs the contract test for every model listed.
 muse-spark-1.3
-muse-wonder
