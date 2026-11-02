@@ -203,6 +203,22 @@ Cloudflare Container에서 잰 값이 아니며, 같은 숫자가 나온다고 �
 
 검증 중 고친 것: 폰에서 p95 차트 글자가 너무 작아지던 문제(컨테이너 실제 폭으로 다시 그림), 해시를 끝자리로 줄여 화면마다 다르게 보이던 문제(해시는 앞자리, ID는 뒷자리).
 
+### 배포 준비 — 컨테이너 이미지 검증 완료, Cloudflare 배포는 secret 등록 대기
+
+Claude의 개발 환경은 네트워크 정책 때문에 Cloudflare API·registry·`workers.dev`와 Debian 미러에 접속할 수 없다. 그래서 이미지 빌드와 배포는 GitHub Actions에서 한다.
+
+GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/mata_Hackathon/actions/runs/41413453840), ubuntu-latest, Replay provider)
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| 이미지 빌드 | 둘 다 성공. runner 1.9 GB(약 140초), aiopsd 95.8 MB(115초) |
+| runner 격리 | 내부 전용 Docker 네트워크에서 외부 HTTPS 접속 실패를 확인 |
+| 전체 run | **COMPLETED** 301초. A/A 1.6%, 후보 빌드 6.1초, golden 11/11, **VERIFIED**(쌍별 p95 개선 90.3 / 90.5 / 90.2%) |
+
+같은 날 로컬(4 vCPU 개발 컨테이너)에서 `scripts/drive-run.sh`로 돌린 run에서는 첫 측정이 baseline 편차 68%로 보류됐다. 이어서 재측정 1회에서 VERIFIED(92.3%)가 나왔다. 보류 후 재측정 경로가 실제로 동작함을 보여 준다.
+
+이 검증은 Worker relay(`d1.internal`, `r2.internal`, `runner.internal`), cron, Cloudflare 컨테이너 시작 지연을 다루지 않는다. Deploy edge 워크플로는 배포 직후 배포된 URL에서 같은 run을 1회 돌린다.
+
 ## 검증 방법
 
 - `cargo test -p aiops-core`: 상태 전이 표, 예산 초과 거절, policy(범위 밖 경로·symlink) 거절, Evaluator 규칙(중앙값·방향 일치·게이트) 단위 테스트.

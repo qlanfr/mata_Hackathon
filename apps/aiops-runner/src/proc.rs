@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
+use anyhow::Context;
 use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 
@@ -42,7 +43,9 @@ pub fn spawn_logged(cmd: &mut Command, log: &Path) -> anyhow::Result<Child> {
         .stderr(Stdio::from(file))
         .process_group(0)
         .kill_on_drop(true);
-    Ok(cmd.spawn()?)
+    let program = cmd.as_std().get_program().to_string_lossy().into_owned();
+    cmd.spawn()
+        .with_context(|| format!("cannot start {program}"))
 }
 
 pub enum Waited {

@@ -17,11 +17,14 @@ on:
       - Cargo.toml
       - Cargo.lock
       - scripts/container-e2e.sh
+      - scripts/drive-run.sh
       - .github/workflows/container-e2e.yml
 
+# A new push waits for the run in progress instead of cancelling it: each run takes a while and
+# its result is still worth having.
 concurrency:
   group: container-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   e2e:
