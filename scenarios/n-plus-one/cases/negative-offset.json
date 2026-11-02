@@ -1,0 +1,12 @@
+{
+  "name": "negative-offset",
+  "request": {
+    "path": "/users/1/orders?offset=-1"
+  },
+  "expect": {
+    "status": 400,
+    "body": {
+      "error": "invalid_offset"
+    }
+  }
+}

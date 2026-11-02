@@ -1,0 +1,15 @@
+{
+  "name": "user-without-orders",
+  "request": {
+    "path": "/users/2005/orders"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "limit": 20,
+      "offset": 0,
+      "orders": [],
+      "user_id": 2005
+    }
+  }
+}

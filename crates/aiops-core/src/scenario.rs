@@ -1,0 +1,151 @@
+use std::path::Path;
+
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+
+/// A versioned experiment definition. Everything here is fixed before a run starts and is
+/// outside the paths a model may edit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioSpec {
+    pub id: String,
+    pub version: u32,
+    pub description: String,
+    pub target: TargetSpec,
+    pub database: DatabaseSpec,
+    pub service: ServiceSpec,
+    pub correctness: CorrectnessSpec,
+    pub load: LoadSpec,
+    pub contract: Contract,
+    pub budget: Budget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TargetSpec {
+    /// Source of the service under test, relative to the repository root.
+    pub source_dir: String,
+    /// Name of the binary cargo produces.
+    pub binary: String,
+    /// Glob patterns (relative to `source_dir`) a patch may touch.
+    pub allowed_paths: Vec<String>,
+    /// Glob patterns that are never editable, even if an allowed pattern matches.
+    pub denied_paths: Vec<String>,
+    /// Upper bound on edits per patch.
+    pub max_edits: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DatabaseSpec {
+    pub name: String,
+    pub schema: String,
+    pub seed: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceSpec {
+    pub pool_size: u32,
+    pub startup_timeout_s: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CorrectnessSpec {
+    /// Directory of golden `*.json` cases, relative to the repository root.
+    pub cases_dir: String,
+    /// Requests used to (re)generate the golden cases from the baseline.
+    pub requests: Vec<CaseRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CaseRequest {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LoadSpec {
+    /// k6 script, relative to the repository root.
+    pub script: String,
+    /// Fixed arrival rate in requests per second.
+    pub rate: u32,
+    pub warmup_s: u32,
+    pub duration_s: u32,
+    pub pre_allocated_vus: u32,
+    pub max_vus: u32,
+    pub request_timeout_ms: u32,
+    /// Number of distinct users the load script cycles through.
+    pub users: u32,
+}
+
+/// The pass/fail rules. Fixed before the run; models cannot change them.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Contract {
+    /// Number of baseline/candidate measurement pairs.
+    pub pairs: u32,
+    /// Required median p95 improvement, as a fraction (0.20 = 20%).
+    pub min_improvement: f64,
+    /// Maximum tolerated baseline noise (A/A difference or baseline spread), as a fraction.
+    pub max_noise: f64,
+    /// Allowed increase in error rate of the candidate over the baseline, as a fraction of offered requests.
+    pub max_error_rate_increase: f64,
+    /// If the baseline itself fails more than this fraction of offered requests, the environment is unhealthy.
+    pub max_baseline_error_rate: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Budget {
+    pub max_candidates: u32,
+    pub max_model_turns: u32,
+    pub max_tool_calls: u32,
+    pub max_run_minutes: u32,
+    pub build_timeout_s: u64,
+}
+
+impl ScenarioSpec {
+    pub fn from_toml(text: &str) -> anyhow::Result<Self> {
+        let spec: ScenarioSpec = toml::from_str(text).context("invalid scenario.toml")?;
+        spec.validate()?;
+        Ok(spec)
+    }
+
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("cannot read scenario {}", path.display()))?;
+        Self::from_toml(&text)
+    }
+
+    /// Stable hash of the whole spec. Recorded with every run so results can be traced to
+    /// the exact contract they were judged against.
+    pub fn content_hash(&self) -> String {
+        crate::sha256_hex(serde_json::to_vec(self).expect("spec serializes"))
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.contract.pairs >= 1,
+            "contract.pairs must be at least 1"
+        );
+        anyhow::ensure!(
+            self.contract.min_improvement > 0.0 && self.contract.min_improvement < 1.0,
+            "contract.min_improvement must be between 0 and 1"
+        );
+        anyhow::ensure!(self.load.rate > 0, "load.rate must be positive");
+        anyhow::ensure!(self.load.duration_s > 0, "load.duration_s must be positive");
+        anyhow::ensure!(
+            !self.target.allowed_paths.is_empty(),
+            "target.allowed_paths must not be empty"
+        );
+        anyhow::ensure!(
+            self.target.max_edits >= 1,
+            "target.max_edits must be at least 1"
+        );
+        Ok(())
+    }
+}

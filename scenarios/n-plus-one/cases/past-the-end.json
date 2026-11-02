@@ -1,0 +1,15 @@
+{
+  "name": "past-the-end",
+  "request": {
+    "path": "/users/3/orders?limit=10&offset=40"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "limit": 10,
+      "offset": 40,
+      "orders": [],
+      "user_id": 3
+    }
+  }
+}

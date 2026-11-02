@@ -1,0 +1,10 @@
+{
+  "summary": "Edits Cargo.toml. Expected: POLICY_REJECTED. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "Cargo.toml",
+      "search": "incremental = true",
+      "replace": "incremental = false"
+    }
+  ]
+}

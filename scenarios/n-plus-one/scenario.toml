@@ -1,0 +1,60 @@
+# N+1 order list scenario. Fixed before a run starts; no file in this directory is editable by a model.
+id = "n-plus-one"
+version = 1
+description = "Order list API loads line items and product names one query at a time. Goal: lower p95 at a fixed arrival rate without changing any response."
+
+[target]
+source_dir = "fixtures/orders-api"
+binary = "orders-api"
+allowed_paths = ["src/**/*.rs"]
+denied_paths = ["src/main.rs", "src/tracker.rs", "Cargo.toml", "Cargo.lock", "build.rs"]
+max_edits = 6
+
+[database]
+name = "orders"
+schema = "scenarios/n-plus-one/schema.sql"
+seed = "scenarios/n-plus-one/seed.sql"
+
+[service]
+pool_size = 8
+startup_timeout_s = 20
+
+[correctness]
+cases_dir = "scenarios/n-plus-one/cases"
+requests = [
+  { name = "first-page", path = "/users/1/orders?limit=20" },
+  { name = "default-page", path = "/users/1234/orders" },
+  { name = "second-page", path = "/users/42/orders?limit=5&offset=10" },
+  { name = "whole-history", path = "/users/7/orders?limit=100" },
+  { name = "partial-last-page", path = "/users/3/orders?limit=10&offset=25" },
+  { name = "past-the-end", path = "/users/3/orders?limit=10&offset=40" },
+  { name = "user-without-orders", path = "/users/2005/orders" },
+  { name = "unknown-user", path = "/users/999999/orders" },
+  { name = "limit-zero", path = "/users/1/orders?limit=0" },
+  { name = "limit-too-large", path = "/users/1/orders?limit=500" },
+  { name = "negative-offset", path = "/users/1/orders?offset=-1" },
+]
+
+[load]
+script = "scenarios/n-plus-one/load.js"
+rate = 100
+warmup_s = 5
+duration_s = 20
+pre_allocated_vus = 50
+max_vus = 200
+request_timeout_ms = 2000
+users = 2000
+
+[contract]
+pairs = 3
+min_improvement = 0.20
+max_noise = 0.15
+max_error_rate_increase = 0.0
+max_baseline_error_rate = 0.01
+
+[budget]
+max_candidates = 3
+max_model_turns = 20
+max_tool_calls = 40
+max_run_minutes = 30
+build_timeout_s = 600

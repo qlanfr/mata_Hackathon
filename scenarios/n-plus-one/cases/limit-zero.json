@@ -1,0 +1,12 @@
+{
+  "name": "limit-zero",
+  "request": {
+    "path": "/users/1/orders?limit=0"
+  },
+  "expect": {
+    "status": 400,
+    "body": {
+      "error": "invalid_limit"
+    }
+  }
+}

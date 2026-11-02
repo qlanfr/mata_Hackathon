@@ -1,0 +1,12 @@
+{
+  "name": "limit-too-large",
+  "request": {
+    "path": "/users/1/orders?limit=500"
+  },
+  "expect": {
+    "status": 400,
+    "body": {
+      "error": "invalid_limit"
+    }
+  }
+}
