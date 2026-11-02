@@ -23,6 +23,12 @@ Cloudflare Containers, runner 4 vCPU, PostgreSQL 15.19, k6 v0.57.0, 100 rps, 20�
 - 같은 날 다른 run 두 개도 VERIFIED였다(쌍별 개선 88.7~90.2%). baseline p95는 인스턴스에 따라 17~29 ms로 달랐다.
 - 배포 중 aiopsd와 runner 컨테이너가 모두 교체돼도 run이 이어서 완료됐다(작업 유실 → 재시도, 리스 인계).
 
+### 하네스 함정 모음 (로컬, 14개)
+
+- 평가기 관문마다 직접 작성한 함정 11개와 기존 후보 3개, 모두 기대 판정대로 나왔다(효과 없는 변경은 INCONCLUSIVE). 표: `docs/plan.md`.
+- 함정을 만들다가 golden의 빈틈을 찾아 메웠다. 항목 순서가 바뀐 오답이 VERIFIED를 받던 문제다. 케이스 추가 후 REJECTED.
+- 표현 주의: 함정은 직접 쓴 하네스 검증용이다. "모델의 오답을 잡았다"고 쓰지 않는다.
+
 ### 로컬 개발 컨테이너
 
 로컬 개발 컨테이너(4 vCPU, rustc 1.97, PostgreSQL 16, k6 v0.57.0), 100 rps, 20초 × 3쌍 기준입니다. Cloudflare에서 측정한 값이 아닙니다.
@@ -40,5 +46,5 @@ Cloudflare Containers, runner 4 vCPU, PostgreSQL 15.19, k6 v0.57.0, 100 rps, 20�
 
 - "Meta 모델이 N+1을 찾아 고쳤다" → Replay로 찍었다면 사실이 아닙니다. Meta로 실제 run을 완주한 경우에만 씁니다.
 - "Cloudflare에서 p95 90% 개선" → Replay provider로 측정한 결과입니다. 모델 쪽은 녹화된 스크립트였다고 함께 밝힙니다.
-- "모든 부하에서 개선", "동치 증명" → golden 11개와 고정 부하에서의 결과일 뿐입니다.
+- "모든 부하에서 개선", "동치 증명" → golden 12개와 고정 부하에서의 결과일 뿐입니다.
 - "Rust라서 루프가 빠르다" → 전체 시간은 빌드·측정이 대부분이고, 이를 비교 측정하지 않았습니다.

@@ -1,0 +1,10 @@
+{
+  "summary": "Compute line totals in whole dollars, which rounds every amount. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/model.rs",
+      "search": "line_total_cents: quantity as i64 * unit_price_cents as i64,",
+      "replace": "line_total_cents: ((quantity as f64 * unit_price_cents as f64) / 100.0).round() as i64 * 100,"
+    }
+  ]
+}

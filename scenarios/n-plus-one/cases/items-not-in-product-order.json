@@ -1,0 +1,241 @@
+{
+  "name": "items-not-in-product-order",
+  "request": {
+    "path": "/users/82/orders?limit=5"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "limit": 5,
+      "offset": 0,
+      "orders": [
+        {
+          "created_at": "2026-10-07T19:54:31Z",
+          "id": 57999,
+          "item_count": 5,
+          "items": [
+            {
+              "line_total_cents": 6919,
+              "product_id": 987,
+              "product_name": "product-0987",
+              "quantity": 1,
+              "unit_price_cents": 6919
+            },
+            {
+              "line_total_cents": 496,
+              "product_id": 4,
+              "product_name": "product-0004",
+              "quantity": 2,
+              "unit_price_cents": 248
+            },
+            {
+              "line_total_cents": 2631,
+              "product_id": 21,
+              "product_name": "product-0021",
+              "quantity": 3,
+              "unit_price_cents": 877
+            },
+            {
+              "line_total_cents": 6024,
+              "product_id": 38,
+              "product_name": "product-0038",
+              "quantity": 4,
+              "unit_price_cents": 1506
+            },
+            {
+              "line_total_cents": 2135,
+              "product_id": 55,
+              "product_name": "product-0055",
+              "quantity": 1,
+              "unit_price_cents": 2135
+            }
+          ],
+          "status": "cancelled",
+          "total_cents": 18205,
+          "user_id": 82
+        },
+        {
+          "created_at": "2026-09-30T03:27:51Z",
+          "id": 41999,
+          "item_count": 5,
+          "items": [
+            {
+              "line_total_cents": 6919,
+              "product_id": 987,
+              "product_name": "product-0987",
+              "quantity": 1,
+              "unit_price_cents": 6919
+            },
+            {
+              "line_total_cents": 496,
+              "product_id": 4,
+              "product_name": "product-0004",
+              "quantity": 2,
+              "unit_price_cents": 248
+            },
+            {
+              "line_total_cents": 2631,
+              "product_id": 21,
+              "product_name": "product-0021",
+              "quantity": 3,
+              "unit_price_cents": 877
+            },
+            {
+              "line_total_cents": 6024,
+              "product_id": 38,
+              "product_name": "product-0038",
+              "quantity": 4,
+              "unit_price_cents": 1506
+            },
+            {
+              "line_total_cents": 2135,
+              "product_id": 55,
+              "product_name": "product-0055",
+              "quantity": 1,
+              "unit_price_cents": 2135
+            }
+          ],
+          "status": "cancelled",
+          "total_cents": 18205,
+          "user_id": 82
+        },
+        {
+          "created_at": "2026-09-22T11:01:11Z",
+          "id": 25999,
+          "item_count": 5,
+          "items": [
+            {
+              "line_total_cents": 6919,
+              "product_id": 987,
+              "product_name": "product-0987",
+              "quantity": 1,
+              "unit_price_cents": 6919
+            },
+            {
+              "line_total_cents": 496,
+              "product_id": 4,
+              "product_name": "product-0004",
+              "quantity": 2,
+              "unit_price_cents": 248
+            },
+            {
+              "line_total_cents": 2631,
+              "product_id": 21,
+              "product_name": "product-0021",
+              "quantity": 3,
+              "unit_price_cents": 877
+            },
+            {
+              "line_total_cents": 6024,
+              "product_id": 38,
+              "product_name": "product-0038",
+              "quantity": 4,
+              "unit_price_cents": 1506
+            },
+            {
+              "line_total_cents": 2135,
+              "product_id": 55,
+              "product_name": "product-0055",
+              "quantity": 1,
+              "unit_price_cents": 2135
+            }
+          ],
+          "status": "cancelled",
+          "total_cents": 18205,
+          "user_id": 82
+        },
+        {
+          "created_at": "2026-09-14T18:34:31Z",
+          "id": 9999,
+          "item_count": 5,
+          "items": [
+            {
+              "line_total_cents": 6919,
+              "product_id": 987,
+              "product_name": "product-0987",
+              "quantity": 1,
+              "unit_price_cents": 6919
+            },
+            {
+              "line_total_cents": 496,
+              "product_id": 4,
+              "product_name": "product-0004",
+              "quantity": 2,
+              "unit_price_cents": 248
+            },
+            {
+              "line_total_cents": 2631,
+              "product_id": 21,
+              "product_name": "product-0021",
+              "quantity": 3,
+              "unit_price_cents": 877
+            },
+            {
+              "line_total_cents": 6024,
+              "product_id": 38,
+              "product_name": "product-0038",
+              "quantity": 4,
+              "unit_price_cents": 1506
+            },
+            {
+              "line_total_cents": 2135,
+              "product_id": 55,
+              "product_name": "product-0055",
+              "quantity": 1,
+              "unit_price_cents": 2135
+            }
+          ],
+          "status": "cancelled",
+          "total_cents": 18205,
+          "user_id": 82
+        },
+        {
+          "created_at": "2026-08-29T18:41:11Z",
+          "id": 51999,
+          "item_count": 5,
+          "items": [
+            {
+              "line_total_cents": 6919,
+              "product_id": 987,
+              "product_name": "product-0987",
+              "quantity": 1,
+              "unit_price_cents": 6919
+            },
+            {
+              "line_total_cents": 496,
+              "product_id": 4,
+              "product_name": "product-0004",
+              "quantity": 2,
+              "unit_price_cents": 248
+            },
+            {
+              "line_total_cents": 2631,
+              "product_id": 21,
+              "product_name": "product-0021",
+              "quantity": 3,
+              "unit_price_cents": 877
+            },
+            {
+              "line_total_cents": 6024,
+              "product_id": 38,
+              "product_name": "product-0038",
+              "quantity": 4,
+              "unit_price_cents": 1506
+            },
+            {
+              "line_total_cents": 2135,
+              "product_id": 55,
+              "product_name": "product-0055",
+              "quantity": 1,
+              "unit_price_cents": 2135
+            }
+          ],
+          "status": "cancelled",
+          "total_cents": 18205,
+          "user_id": 82
+        }
+      ],
+      "user_id": 82
+    }
+  }
+}

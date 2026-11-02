@@ -6,3 +6,4 @@
 2026-11-02 redeploy to verify event collection and artifact upload
 2026-11-02 deploy the orchestrator lease and SIGTERM handling
 2026-11-02 deploy all-or-nothing transitions (cas_guard)
+2026-11-02 deploy the 12th golden case (items-not-in-product-order)

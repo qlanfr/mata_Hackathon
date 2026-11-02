@@ -1,0 +1,94 @@
+[
+  {
+    "file": "known-good-batched-join.json",
+    "expect": "VERIFIED",
+    "tolerate": [
+      "INCONCLUSIVE"
+    ],
+    "gate": "improvement"
+  },
+  {
+    "file": "known-bad-drops-items.json",
+    "expect": "REJECTED",
+    "tolerate": [],
+    "gate": "correctness"
+  },
+  {
+    "file": "known-policy-violation.json",
+    "expect": "POLICY_REJECTED",
+    "tolerate": [],
+    "gate": "policy"
+  },
+  {
+    "file": "trap-items-in-product-order.json",
+    "expect": "REJECTED",
+    "tolerate": [],
+    "gate": "correctness"
+  },
+  {
+    "file": "trap-page-shifted.json",
+    "expect": "REJECTED",
+    "tolerate": [],
+    "gate": "correctness"
+  },
+  {
+    "file": "trap-other-users-orders.json",
+    "expect": "REJECTED",
+    "tolerate": [],
+    "gate": "correctness"
+  },
+  {
+    "file": "trap-totals-rounded.json",
+    "expect": "REJECTED",
+    "tolerate": [],
+    "gate": "correctness"
+  },
+  {
+    "file": "trap-skips-user-check.json",
+    "expect": "REJECTED",
+    "tolerate": [],
+    "gate": "correctness"
+  },
+  {
+    "file": "trap-edits-tracker.json",
+    "expect": "POLICY_REJECTED",
+    "tolerate": [],
+    "gate": "policy"
+  },
+  {
+    "file": "trap-edits-golden-answers.json",
+    "expect": "POLICY_REJECTED",
+    "tolerate": [],
+    "gate": "policy"
+  },
+  {
+    "file": "trap-no-measurable-effect.json",
+    "expect": "INCONCLUSIVE",
+    "tolerate": [
+      "REJECTED"
+    ],
+    "gate": "improvement"
+  },
+  {
+    "file": "trap-slower.json",
+    "expect": "REJECTED",
+    "tolerate": [
+      "INCONCLUSIVE"
+    ],
+    "gate": "improvement"
+  },
+  {
+    "file": "trap-crashes-on-last-product.json",
+    "expect": "REJECTED",
+    "tolerate": [
+      "INCONCLUSIVE"
+    ],
+    "gate": "errors"
+  },
+  {
+    "file": "trap-does-not-compile.json",
+    "expect": "EXECUTION_ERROR",
+    "tolerate": [],
+    "gate": "build"
+  }
+]

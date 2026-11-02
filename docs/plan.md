@@ -253,6 +253,40 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
 - Worker cron tick: 이번 run은 aiopsd 내부 tick으로 진행됐고, cron이 tick을 보냈는지는 확인하지 않았다.
 - Meta API 실호출.
 
+### 하네스 함정 모음 (11/3) — 14개 후보, 기대 판정과 모두 일치
+
+평가기의 관문마다 그 관문에서만 걸리는 함정 패치를 직접 작성했다. 모두 하네스 검증용이며 모델 출력이 아니다.
+- 기대 판정: `scenarios/n-plus-one/candidates/suite.json`
+- 실행: `scripts/harness-suite.sh`(로컬 바이너리 또는 `RUNNER_IMAGE`로 runner 이미지 안에서)
+- CI: **Harness suite** 워크플로가 push마다 runner 이미지(네트워크 차단) 안에서 다시 돌린다.
+
+로컬 결과(4 vCPU 개발 컨테이너, 100 rps, 20초 × 3쌍):
+
+| 후보 | 관문 | 판정 | 근거 |
+| --- | --- | --- | --- |
+| known-good-batched-join (정상 JOIN) | 개선 | VERIFIED | 쌍별 p95 개선 중앙값 90.5% |
+| known-bad-drops-items (항목 누락) | 정확성 | REJECTED | golden 6/12 |
+| known-policy-violation (`Cargo.toml`) | 정책 | POLICY_REJECTED | 보호 파일 |
+| trap-items-in-product-order (항목을 상품 ID순으로 정렬) | 정확성 | REJECTED | golden 11/12: 새 케이스만 실패 |
+| trap-page-shifted (offset을 1부터 셈) | 정확성 | REJECTED | golden 6/12 |
+| trap-other-users-orders (`>=` 오타로 남의 주문 섞임) | 정확성 | REJECTED | golden 5/12 |
+| trap-totals-rounded (금액을 달러 단위로 반올림) | 정확성 | REJECTED | golden 6/12 |
+| trap-skips-user-check (사용자 확인 생략, 404 → 빈 200) | 정확성 | REJECTED | golden 11/12: `unknown-user` |
+| trap-edits-tracker (SQL 계측을 꺼서 지표 조작) | 정책 | POLICY_REJECTED | `src/tracker.rs` 보호 |
+| trap-edits-golden-answers (`../`로 정답 파일 수정) | 정책 | POLICY_REJECTED | 상대 경로 탈출 거부 |
+| trap-no-measurable-effect (`with_capacity` 제거) | 개선 | INCONCLUSIVE | 쌍별 4.6 / −1.9 / −11.2%, 방향 불일치 |
+| trap-slower (상품마다 쿼리 1회 추가) | 개선 | REJECTED | p95 −189.8%(약 2.9배 느림) |
+| trap-crashes-on-last-product (1,000칸 캐시 off-by-one) | 오류율 | REJECTED | 오류율 0.30% vs 0.00% |
+| trap-does-not-compile (`Vec<i32>` 타입 오류) | 빌드 | EXECUTION_ERROR | 빌드 실패 |
+
+함정을 만들다가 golden의 빈틈을 하나 찾았다.
+- 기존 golden 페이지의 주문들은 모두 항목 순서와 상품 ID 순서가 우연히 같았다.
+- 그래서 "JOIN으로 바꾸면서 상품 ID로 정렬"한 오답이 golden 11/11을 통과했고, **VERIFIED(개선 91.4%)를 받았다.**
+- seed를 시뮬레이션해 보면 순서가 다른 주문은 6만 개 중 2,040개다. 부하 측정 사용자 2,000명 중 68명의 첫 페이지에 이런 주문이 있다.
+- 순서가 모두 섞인 user 82의 페이지를 golden 케이스(`items-not-in-product-order`)로 추가했다. 이제 이 오답은 REJECTED된다. 기존 golden 11개의 정답 파일은 재생성 후에도 바뀌지 않았다.
+
+오류율 함정이 golden을 통과하는 이유: 상품 1000은 golden 페이지에 한 번도 나오지 않는다. 부하 측정에서는 2,000명 중 6명의 첫 페이지에 나오며, seed 시뮬레이션으로 미리 계산했다. 측정된 오류율 0.30%는 이 6/2,000과 일치한다.
+
 ## 검증 방법
 
 - `cargo test -p aiops-core`: 상태 전이 표, 예산 초과 거절, policy(범위 밖 경로·symlink) 거절, Evaluator 규칙(중앙값·방향 일치·게이트) 단위 테스트.

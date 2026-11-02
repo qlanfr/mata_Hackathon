@@ -1,0 +1,10 @@
+{
+  "summary": "Filter orders with >= instead of =, which mixes in other users' orders. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/repo.rs",
+      "search": "FROM orders WHERE user_id = $1 ",
+      "replace": "FROM orders WHERE user_id >= $1 "
+    }
+  ]
+}

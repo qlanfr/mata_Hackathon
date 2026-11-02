@@ -1,0 +1,15 @@
+{
+  "summary": "Cache product names in a table of 1,000 slots indexed by id; ids run 1..=1000, so product 1000 panics. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/repo.rs",
+      "search": "    let mut views = Vec::with_capacity(orders.len());\n",
+      "replace": "    let mut views = Vec::with_capacity(orders.len());\n    // Product ids run up to 1000: cache names in a fixed table instead of asking every time.\n    let mut names: Vec<Option<String>> = vec![None; 1000];\n"
+    },
+    {
+      "path": "src/repo.rs",
+      "search": "        let mut items = Vec::with_capacity(item_rows.len());\n        for row in item_rows {\n            let product_id: i64 = row.get(\"product_id\");\n            let product = tracker\n                .run(sqlx::query(\"SELECT name FROM products WHERE id = $1\").bind(product_id).fetch_one(pool))\n                .await?;\n            items.push(ItemView::new(\n                product_id,\n                product.get(\"name\"),\n                row.get(\"quantity\"),\n                row.get(\"unit_price_cents\"),\n            ));\n        }\n",
+      "replace": "        let mut items = Vec::with_capacity(item_rows.len());\n        for row in item_rows {\n            let product_id: i64 = row.get(\"product_id\");\n            let name = match &names[product_id as usize] {\n                Some(name) => name.clone(),\n                None => {\n                    let product = tracker\n                        .run(sqlx::query(\"SELECT name FROM products WHERE id = $1\").bind(product_id).fetch_one(pool))\n                        .await?;\n                    let name: String = product.get(\"name\");\n                    names[product_id as usize] = Some(name.clone());\n                    name\n                }\n            };\n            items.push(ItemView::new(\n                product_id,\n                name,\n                row.get(\"quantity\"),\n                row.get(\"unit_price_cents\"),\n            ));\n        }\n"
+    }
+  ]
+}

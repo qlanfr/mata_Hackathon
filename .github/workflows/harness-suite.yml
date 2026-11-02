@@ -1,0 +1,44 @@
+name: Harness suite
+
+# Runs every hand-written candidate in scenarios/n-plus-one/candidates/suite.json inside the runner
+# image (no network) and fails when a verdict falls outside its expected set. It guards the
+# evaluator, the patch policy and the golden cases against regressions.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scenarios/**
+      - crates/aiops-core/**
+      - apps/aiops-runner/**
+      - fixtures/**
+      - deploy/Dockerfile.runner
+      - scripts/harness-suite.sh
+      - .github/workflows/harness-suite.yml
+
+concurrency:
+  group: harness-suite-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the runner image
+        run: docker build -f deploy/Dockerfile.runner -t aiops-runner:suite .
+      - name: Run the suite
+        env:
+          RUNNER_IMAGE: aiops-runner:suite
+        run: |
+          status=0
+          scripts/harness-suite.sh || status=$?
+          cat .work/harness-suite/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          exit $status
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-suite
+          path: .work/harness-suite
+          if-no-files-found: ignore
+          include-hidden-files: true

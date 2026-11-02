@@ -1,0 +1,10 @@
+{
+  "summary": "Treat offset as one-based, so every page starts one order late. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/repo.rs",
+      "search": "            .bind(offset)\n",
+      "replace": "            .bind(offset + 1)\n"
+    }
+  ]
+}

@@ -13,7 +13,7 @@ Meta 모델이 운영 증거를 읽고 성능 개선 가설과 패치를 제안�
 | `aiops-core` | `crates/aiops-core` | 시나리오 계약, search/replace 패치 정책, 측정 보고서 타입, 판정 게이트(평가기) |
 | `aiops-runner` | `apps/aiops-runner` | 패치 적용 → 빌드 → golden 검사 → k6 교대 측정 → 정리. CLI와 HTTP job API |
 | 실험 대상 | `fixtures/orders-api` | N+1 패턴이 있는 주문 목록 API. 요청마다 SQL 수와 DB 시간을 JSON으로 기록 |
-| 시나리오 | `scenarios/n-plus-one` | seed, golden 케이스 11개, 부하 스크립트, 하네스 검증용 후보 3개 |
+| 시나리오 | `scenarios/n-plus-one` | seed, golden 케이스 12개, 부하 스크립트, 하네스 검증용 후보 14개(관문별 함정, `scripts/harness-suite.sh`) |
 | `aiopsd` | `apps/aiopsd` | 상태 머신, 제어 DB(D1/SQLite), 관측·실험 역할 하네스, Meta/Replay provider, API·SSE |
 | 제어 DB 스키마 | `migrations` | D1과 로컬 SQLite가 같은 파일을 사용 |
 | Edge Worker | `edge` | React 정적 자산, aiopsd·runner 컨테이너, D1·R2·runner relay, cron, 쓰기 API 인증 |

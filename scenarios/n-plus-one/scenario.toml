@@ -26,6 +26,9 @@ requests = [
   { name = "default-page", path = "/users/1234/orders" },
   { name = "second-page", path = "/users/42/orders?limit=5&offset=10" },
   { name = "whole-history", path = "/users/7/orders?limit=100" },
+  # Every order on this page lists its items out of product-id order ([987, 4, 21, 38, 55]). Without
+  # it, a batched query that sorts items by product id instead of position passed all other cases.
+  { name = "items-not-in-product-order", path = "/users/82/orders?limit=5" },
   { name = "partial-last-page", path = "/users/3/orders?limit=10&offset=25" },
   { name = "past-the-end", path = "/users/3/orders?limit=10&offset=40" },
   { name = "user-without-orders", path = "/users/2005/orders" },
