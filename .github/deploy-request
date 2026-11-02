@@ -1,3 +1,4 @@
 # Changing this file on a push runs the Deploy edge workflow (.github/workflows/deploy-edge.yml).
 # One line per requested deploy.
 2026-11-02 first deploy to Cloudflare (replay provider)
+2026-11-02 retry after repository secrets were added
