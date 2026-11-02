@@ -3,6 +3,7 @@
 //
 //   /api/*      → aiopsd (GET is public; writes need `Authorization: Bearer <ADMIN_TOKEN>`)
 //   /runner/*   → runner job API (admin only; for measurements and debugging)
+//   POST /admin/restart-aiopsd → restart the control plane with the current config (admin only)
 //   cron        → wakes aiopsd while any run is unfinished
 //
 // Containers reach D1, R2 and the runner only through the outbound handlers below.
@@ -65,6 +66,21 @@ export default {
         return Response.json({ error: "unauthorized" }, { status: 401 });
       }
       return aiopsd(env).fetch(request);
+    }
+
+    // A container rollout swaps the image but can keep the environment the container was first
+    // started with. Stopping aiopsd (SIGTERM: it finishes its tick and hands over its lease) makes
+    // the next request start it from this version, with this version's vars and secrets.
+    if (url.pathname === "/admin/restart-aiopsd" && request.method === "POST") {
+      if (!(await authorized(request, env))) {
+        return Response.json({ error: "unauthorized" }, { status: 401 });
+      }
+      try {
+        await aiopsd(env).stop();
+        return Response.json({ stopped: true });
+      } catch (err) {
+        return Response.json({ stopped: false, error: String(err) }, { status: 500 });
+      }
     }
 
     if (url.pathname === "/runner" || url.pathname.startsWith("/runner/")) {

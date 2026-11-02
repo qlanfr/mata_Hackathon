@@ -134,6 +134,14 @@ jobs:
             echo "provider=replay" >> "$GITHUB_OUTPUT"; echo "accept=verified" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Restart aiopsd with this version's configuration
+        if: steps.deploy.outputs.url != ''
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          curl -sS --retry 5 --retry-delay 5 --retry-all-errors -X POST \
+            -H "authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/admin/restart-aiopsd"; echo
+
       - name: Full run on Cloudflare
         if: (github.event_name == 'push' || inputs.run_e2e) && steps.deploy.outputs.url != ''
         env:

@@ -22,6 +22,8 @@ type Shared = Arc<App>;
 pub fn router(app: Shared) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        // The same facts under /api, which the Worker forwards (it answers /healthz itself).
+        .route("/api/v1/info", get(healthz))
         .route("/internal/tick", post(tick))
         .route("/api/v1/runs", get(list_runs).post(create_run))
         .route("/api/v1/alerts", post(create_alert))
@@ -66,9 +68,11 @@ fn trial_view(r: &Row) -> Value {
 }
 
 async fn healthz(State(app): State<Shared>) -> Json<Value> {
-    Json(
-        json!({ "ok": true, "db": app.db.backend(), "provider": app.provider.label(), "scenario": app.spec.id, "scenario_hash": app.scenario_hash }),
-    )
+    Json(json!({
+        "ok": true, "db": app.db.backend(), "provider": app.provider.label(),
+        "scenario": app.spec.id, "scenario_hash": app.scenario_hash,
+        "instance": app.lease.holder(), "version": env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 async fn tick(State(app): State<Shared>) -> Response {

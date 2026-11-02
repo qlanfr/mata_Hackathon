@@ -35,6 +35,21 @@ until get "$BASE_URL/api/v1/runs" > "$OUT/runs-before.json" 2> "$OUT/startup.err
 done
 echo "API ready after $(( $(date +%s) - started ))s"
 
+# Right after a deploy the old aiopsd may still answer. With EXPECT_PROVIDER set, wait until the
+# instance answering is the one configured for it, so the run is not created on the old one.
+if [ -n "${EXPECT_PROVIDER:-}" ]; then
+  until get "$BASE_URL/api/v1/info" > "$OUT/info.json" 2> /dev/null \
+    && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("provider") == sys.argv[2] else 1)' \
+      "$OUT/info.json" "$EXPECT_PROVIDER"; do
+    if [ $(( $(date +%s) - started )) -gt "$STARTUP_S" ]; then
+      echo "FAIL: aiopsd still reports $(cat "$OUT/info.json" 2> /dev/null || echo nothing), expected provider $EXPECT_PROVIDER" >&2
+      exit 1
+    fi
+    sleep 10
+  done
+  echo "aiopsd reports provider $EXPECT_PROVIDER: $(cat "$OUT/info.json")"
+fi
+
 # One more run is started in exactly two cases, both about the environment rather than the change:
 # - Right after a deploy, old containers can still serve while new ones roll out. If the rollout
 #   changed the scenario, aiopsd stops the run ("scenario changed during the run").
