@@ -39,6 +39,10 @@ requests = [
   { name = "past-the-end", path = "/users/3/orders?limit=10&offset=40" },
   { name = "user-without-orders", path = "/users/2005/orders" },
   { name = "unknown-user", path = "/users/999999/orders" },
+  # Found by mutation testing (scripts/mutation-test.py): an unknown id below the highest real
+  # id, and the last real user, catch user lookups that compare with >= or look up a neighbour.
+  { name = "unknown-user-low-id", path = "/users/0/orders" },
+  { name = "last-user", path = "/users/2010/orders" },
   { name = "limit-zero", path = "/users/1/orders?limit=0" },
   { name = "limit-too-large", path = "/users/1/orders?limit=500" },
   { name = "negative-offset", path = "/users/1/orders?offset=-1" },

@@ -7,11 +7,19 @@
 - [ ] 참가 등록과 팀 정보 확인
 - [ ] 제출 규정 확인: 기존 코드 사용 허용 여부, 필수 항목(저장소, 영상, 데모 URL, 설명문 길이 등)
 - [x] Cloudflare 배포 (`docs/setup.md`)와 배포 URL에서 run 1회 완주
-- [ ] Meta API 키를 받으면 `META_API_KEY` secret과 `META_MODEL` 설정 후 Meta provider로 run 1회 (받지 못하면 Replay로 제출하고 그 사실을 명시)
+- [x] Meta API 키를 받으면 `META_API_KEY` secret과 `META_MODEL` 설정 후 Meta provider로 run 1회 (`muse-spark-1.3`, run `01a19d86-d9d6-76d3-bced-54ae6d3475ec`, VERIFIED)
 - [ ] 데모 영상 녹화 (`docs/demo-script.md`), 빨리 감기 구간과 run ID 표시
 - [ ] 제출 폼 작성과 업로드, 11:00 KST 전에 여유 있게
 
 ## 제출 설명에 쓸 수 있는 사실 (측정됨)
+
+### Meta 모델로 돌린 배포본 run (가장 중요)
+
+- 모델 `muse-spark-1.3`(Meta Model API)이 관측·실험 역할을 맡았다. run `01a19d86-d9d6-76d3-bced-54ae6d3475ec`.
+- 모델이 도구로 지표·요청 증거·소스를 읽었다. "load_order_details의 N+1이 p95를 지배한다"는 가설을 세우고, 한 페이지의 항목과 상품명을 JOIN 한 번으로 읽는 패치를 직접 작성했다.
+- 하네스 검증: golden 12/12, 불변식 208/208, 표본 비교 200/200. 요청당 SQL 81.8 → 3.0, p95 쌍별 개선 88.6 / 87.7 / 88.3%, A/A 노이즈 2.6%. 판정 VERIFIED.
+- 모델 9턴, 도구 호출 15회, 입력 37,327 / 출력 10,483 토큰. 생성부터 판정까지 약 7분(배포 직후 runner 교체로 인한 재시도 포함).
+- 표현 주의: 시나리오 하나, 1회 실행 결과다. "모델이 항상 찾는다"고 쓰지 않는다.
 
 ### Cloudflare 배포본 (https://aiops-edge.yh9365.workers.dev, Replay provider)
 
@@ -44,7 +52,7 @@ Cloudflare Containers, runner 4 vCPU, PostgreSQL 15.19, k6 v0.57.0, 100 rps, 20�
 
 ## 쓰면 안 되는 표현
 
-- "Meta 모델이 N+1을 찾아 고쳤다" → Replay로 찍었다면 사실이 아닙니다. Meta로 실제 run을 완주한 경우에만 씁니다.
+- "Meta 모델이 N+1을 찾아 고쳤다" → 위 run(`01a19d86…`)을 근거로 쓸 수 있습니다. Replay run 화면을 이 문장과 함께 쓰지 않습니다.
 - "Cloudflare에서 p95 90% 개선" → Replay provider로 측정한 결과입니다. 모델 쪽은 녹화된 스크립트였다고 함께 밝힙니다.
 - "모든 부하에서 개선", "동치 증명" → golden 12개와 고정 부하에서의 결과일 뿐입니다.
 - "Rust라서 루프가 빠르다" → 전체 시간은 빌드·측정이 대부분이고, 이를 비교 측정하지 않았습니다.

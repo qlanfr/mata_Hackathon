@@ -8,7 +8,7 @@
 | R2 `aiops-artifacts` | 생성 완료. 64 KB를 넘는 아티팩트만 여기에 저장합니다. |
 | 컨테이너 이미지 | GitHub Actions의 **Container E2E** 워크플로가 두 이미지를 빌드하고, Docker 안에서 전체 실행 1회를 돌려 검증합니다. Cloudflare 자격 증명은 필요 없습니다. |
 | Worker `aiops-edge` | 배포 완료: https://aiops-edge.yh9365.workers.dev . 배포는 GitHub Actions에서 실행합니다(아래 3절). Claude가 작업하는 클라우드 환경은 네트워크 정책 때문에 `api.cloudflare.com`, `registry.cloudflare.com`, `*.workers.dev`에 접속할 수 없습니다. |
-| Meta API | 키가 없으면 Replay provider로 동작합니다. 실행 기록과 화면에 `replay`로 표시됩니다. |
+| Meta API | 연결됨: `META_API_KEY`(GitHub secret)와 `edge/wrangler.jsonc`의 `META_MODEL = "muse-spark-1.3"`. Meta contract 워크플로가 실제 API로 형식을 확인하고, 키로 쓸 수 있는 모델 목록을 보여 줍니다(`.github/meta-contract-request`에 모델 ID를 적고 푸시). |
 
 계정에 이미 있는 Worker와 D1(`bid-analytics-v3` 등)은 건드리지 않습니다.
 

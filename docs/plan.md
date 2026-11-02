@@ -312,6 +312,29 @@ CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러
 
 오류율 함정이 golden을 통과하는 이유: 상품 1000은 golden 페이지에 한 번도 나오지 않는다. 부하 측정에서는 2,000명 중 6명의 첫 페이지에 나오며, seed 시뮬레이션으로 미리 계산했다. 측정된 오류율 0.30%는 이 6/2,000과 일치한다.
 
+### Meta Model API 연결 (11/3) — muse-spark-1.3이 Cloudflare에서 VERIFIED
+
+- **계약 테스트:** `aiopsd --contract-test`를 Meta contract 워크플로에서 돌렸다. 이 개발 환경에서는 `api.meta.ai`에 닿지 않아 GitHub Actions에서 실행한다.
+  - 우리 Responses API 요청 형식(`POST /v1/responses`, function tool, `function_call_output`, `text.format` json_schema strict)이 수정 없이 받아들여졌다.
+  - 키로 쓸 수 있는 모델(`GET /v1/models`): `muse-wonder-1.0`, `muse-spark-1.3`, `muse-spark-1.3-contributor`, `muse-spark-1.2`, `muse-spark-1.2-contributor`, `muse-spark-1.1`, `sam-3.1`, `muse-voice-transcribe-1.0`, `muse-image-1.0`.
+  - `muse-spark-1.3`과 `muse-wonder-1.0` 모두 도구 호출 왕복과 JSON 스키마 답변을 통과했다(각 약 4초, 10초).
+- **고친 것:**
+  - 모델은 도구를 부르기 전에 한 줄 설명을 함께 보낸다("I'll look up …"). 계약 테스트가 이 설명을 최종 답으로 읽은 것을 고쳤다. 에이전트 루프는 원래 이 설명을 답으로 취급하지 않았고, 이제 이 설명도 대화 기록에 순서대로 남긴다.
+  - 컨테이너 롤아웃이 이미지는 바꿨지만 aiopsd의 환경변수는 이전 것(모델 없음)을 유지해 replay로 실행됐다.
+    - 이 문제는 배포 확인 단계의 provider 검사가 잡았다("provider is replay, expected meta:muse-spark-1.3").
+    - 수정: 배포 직후 `POST /admin/restart-aiopsd`로 aiopsd를 재시작한다. 실행 스크립트는 `/api/v1/info`가 기대한 provider를 보일 때까지 기다린 뒤 run을 만든다.
+- **결과:** run `01a19d86-d9d6-76d3-bced-54ae6d3475ec`([Deploy edge run 41500223444](https://github.com/qlanfr/mata_Hackathon/actions/runs/41500223444) 성공).
+
+| 단계 | 내용 |
+| --- | --- |
+| 관측 역할 (3턴) | 1턴에 지표·요청 증거·소스 목록·과거 실험을 병렬로 조회, 2턴에 소스 4개를 읽음, 3턴에 근거 ID가 붙은 관측(p95 약 16.4 ms, 요청당 SQL 81.8개)을 작성 |
+| 실험 역할 (6턴) | 가설 "N+1 in load_order_details dominates p95; fetching all items of the page plus product names in one JOIN removes most queries." 패치는 `src/repo.rs` 하나 |
+| 하네스 | 정책 통과, 빌드 4.1초, golden 12/12, 불변식 208/208, 표본 비교 200/200 |
+| 측정 | A/A 노이즈 2.6%, 요청당 SQL 81.8 → 3.0, p95 쌍별 개선 88.6 / 87.7 / 88.3% → **VERIFIED** |
+| 사용량 | 모델 9턴, 도구 호출 15회, 후보 1개, 입력 37,327 / 출력 10,483 토큰 |
+
+- **한계:** 이 결과는 시나리오 하나에서 1회 실행한 것이다. 같은 모델이 매번 같은 패치를 낸다는 뜻은 아니다.
+
 ## 검증 방법
 
 - `cargo test -p aiops-core`: 상태 전이 표, 예산 초과 거절, policy(범위 밖 경로·symlink) 거절, Evaluator 규칙(중앙값·방향 일치·게이트) 단위 테스트.

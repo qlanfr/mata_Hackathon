@@ -101,21 +101,36 @@ pub fn sample_paths(spec: &SampleSpec, users: u32) -> Vec<String> {
         .collect()
 }
 
+/// Time one service gets to answer every probe request. A candidate that makes requests very
+/// slow would otherwise hold the check for `requests × timeout`; what is not sent in time counts
+/// as a failed request.
+pub const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Fetches each path once, one request at a time. Sequential on purpose: these checks are about
 /// answers; behaviour under concurrency is the load test's job.
 pub async fn fetch_each(
     client: &reqwest::Client,
     base_url: &str,
     paths: &[String],
-) -> Vec<crate::invariants::Response> {
+    cancel: &tokio_util::sync::CancellationToken,
+) -> anyhow::Result<Vec<crate::invariants::Response>> {
+    let deadline = tokio::time::Instant::now() + PROBE_BUDGET;
     let mut out = Vec::with_capacity(paths.len());
     for path in paths {
-        let result = fetch(client, base_url, path)
-            .await
-            .map_err(|e| format!("request failed: {e}"));
+        if cancel.is_cancelled() {
+            return Err(crate::proc::Cancelled.into());
+        }
+        let result = match tokio::time::timeout_at(deadline, fetch(client, base_url, path)).await {
+            Ok(Ok(answer)) => Ok(answer),
+            Ok(Err(e)) => Err(format!("request failed: {e}")),
+            Err(_) => Err(format!(
+                "not answered within the {}s correctness budget",
+                PROBE_BUDGET.as_secs()
+            )),
+        };
         out.push((path.clone(), result));
     }
-    out
+    Ok(out)
 }
 
 /// Compares the candidate's answers with the baseline's, request by request.

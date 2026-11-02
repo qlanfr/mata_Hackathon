@@ -250,7 +250,8 @@ async fn baseline_inner(
     anyhow::ensure!(passed, "baseline does not match the golden cases");
     // The original code is checked against the API's own rules too: a violation here is a bug
     // it already had, and no candidate can be judged against it.
-    let responses = correctness::fetch_each(&http, &a.base_url, &probe_paths(rt, &cases)).await;
+    let responses =
+        correctness::fetch_each(&http, &a.base_url, &probe_paths(rt, &cases), &ctl.cancel).await?;
     let invariants = crate::invariants::check(&rt.spec.correctness.invariants, &responses);
     let ok = invariants.all_passed() || invariants.total == 0;
     let first = invariants
@@ -455,8 +456,8 @@ async fn trial_inner(
         // Beyond the stored answers: the same golden and sampled requests to both services,
         // checked against the response invariants and compared with each other.
         let paths = probe_paths(rt, &cases);
-        let base_resp = correctness::fetch_each(&http, &base.base_url, &paths).await;
-        let cand_resp = correctness::fetch_each(&http, &cand.base_url, &paths).await;
+        let base_resp = correctness::fetch_each(&http, &base.base_url, &paths, &ctl.cancel).await?;
+        let cand_resp = correctness::fetch_each(&http, &cand.base_url, &paths, &ctl.cancel).await?;
         let sets = &rt.spec.correctness.invariants;
         let base_inv = crate::invariants::check(sets, &base_resp);
         let cand_inv = crate::invariants::check(sets, &cand_resp);
