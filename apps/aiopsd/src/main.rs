@@ -77,6 +77,10 @@ struct Opts {
     /// Interval of the in-process tick. The Worker's cron tick covers sleeps and restarts.
     #[arg(long, env = "AIOPS_TICK_MS", default_value_t = 3000)]
     tick_ms: u64,
+    /// Check the Meta API contract (tool round trip and JSON-schema answer) with META_API_KEY and
+    /// --meta-model, print the result and exit. Nothing else starts.
+    #[arg(long)]
+    contract_test: bool,
 }
 
 #[tokio::main]
@@ -87,6 +91,15 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let opts = Opts::parse();
+    if opts.contract_test {
+        let key = std::env::var("META_API_KEY").unwrap_or_default();
+        let meta = MetaProvider::new(&opts.meta_base_url, &key, &opts.meta_model)?;
+        println!(
+            "contract test: {} at {}",
+            opts.meta_model, opts.meta_base_url
+        );
+        return llm::contract_test(&meta).await;
+    }
     let repo_root = opts.repo_root.canonicalize()?;
     let spec = ScenarioSpec::load(&repo_root.join(&opts.scenario))?;
     let scenario_hash = spec.content_hash();

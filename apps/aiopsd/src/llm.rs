@@ -198,6 +198,108 @@ impl MetaProvider {
     }
 }
 
+/// Checks the live Meta API against the exact request and response shapes `MetaProvider` uses:
+/// a function tool, a round trip of its output, and a JSON-schema final answer. Prints each step
+/// and fails with the API's own error text when a shape is rejected.
+pub async fn contract_test(meta: &MetaProvider) -> anyhow::Result<()> {
+    let tools = [ToolSpec {
+        name: "lookup_order_count",
+        description: "Returns how many orders a user has.",
+        parameters: json!({
+            "type": "object",
+            "properties": { "user_id": { "type": "integer" } },
+            "required": ["user_id"],
+            "additionalProperties": false
+        }),
+    }];
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "user_id": { "type": "integer" },
+            "order_count": { "type": "integer" }
+        },
+        "required": ["user_id", "order_count"],
+        "additionalProperties": false
+    });
+    let instructions = "You are checking an API integration. Call lookup_order_count for the user \
+        in the question before answering, then answer with the count the tool returned.";
+    let mut input = vec![Item::Message {
+        role: "user".into(),
+        content: "How many orders does user 42 have?".into(),
+    }];
+    let mut usage = Usage::default();
+    for turn in 1..=4 {
+        let req = ModelRequest {
+            role: Role::Observer,
+            round: 0,
+            instructions,
+            input: &input,
+            tools: &tools,
+            output_schema: ("order_count_answer", &schema),
+        };
+        let resp = meta.respond(&req).await?;
+        usage.input_tokens += resp.usage.input_tokens;
+        usage.output_tokens += resp.usage.output_tokens;
+        println!(
+            "turn {turn}: response {} with {} item(s), usage {:?}",
+            resp.response_id.as_deref().unwrap_or("(no id)"),
+            resp.items.len(),
+            resp.usage
+        );
+        let mut called = false;
+        for item in &resp.items {
+            match item {
+                Item::FunctionCall {
+                    call_id,
+                    name,
+                    arguments,
+                } => {
+                    println!("  function_call {name}({arguments}) call_id={call_id}");
+                    anyhow::ensure!(name == "lookup_order_count", "unexpected tool `{name}`");
+                    anyhow::ensure!(!call_id.is_empty(), "function_call without call_id");
+                    let args: Value = serde_json::from_str(arguments)
+                        .context("function_call arguments are not JSON")?;
+                    anyhow::ensure!(args["user_id"] == json!(42), "tool called with {args}");
+                    input.push(item.clone());
+                    input.push(Item::FunctionCallOutput {
+                        call_id: call_id.clone(),
+                        output: json!({ "user_id": 42, "order_count": 30 }).to_string(),
+                    });
+                    called = true;
+                }
+                Item::Message { content, .. } => {
+                    println!("  message: {}", truncate(content, 300));
+                    if called {
+                        continue;
+                    }
+                    let answer: Value = serde_json::from_str(content)
+                        .context("final answer is not JSON (text.format json_schema ignored?)")?;
+                    anyhow::ensure!(
+                        answer["user_id"] == json!(42) && answer["order_count"] == json!(30),
+                        "answer does not match the schema or the tool output: {answer}"
+                    );
+                    anyhow::ensure!(
+                        input
+                            .iter()
+                            .any(|i| matches!(i, Item::FunctionCallOutput { .. })),
+                        "the model answered without calling the tool"
+                    );
+                    println!(
+                        "contract test passed: tool round trip and JSON-schema answer ({usage:?})"
+                    );
+                    return Ok(());
+                }
+                Item::FunctionCallOutput { .. } => {}
+            }
+        }
+        anyhow::ensure!(
+            called,
+            "turn {turn} returned neither a tool call nor an answer"
+        );
+    }
+    anyhow::bail!("no final answer after 4 turns")
+}
+
 /// Reads a Responses-API result: `output[]` of `message` (with `output_text` parts) and
 /// `function_call` items, plus `usage`.
 pub fn parse_responses_output(value: &Value) -> ModelResponse {
