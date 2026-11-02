@@ -70,6 +70,13 @@ impl Runtime {
             .canonicalize()
             .with_context(|| format!("repository root {} not found", opts.repo_root.display()))?;
         let mut spec = ScenarioSpec::load(&repo_root.join(&opts.scenario))?;
+        for set in &spec.correctness.invariants {
+            anyhow::ensure!(
+                crate::invariants::KNOWN.contains(&set.as_str()),
+                "unknown invariant set `{set}` (known: {:?})",
+                crate::invariants::KNOWN
+            );
+        }
         if let Some(rate) = opts.rate {
             spec.load.rate = rate;
         }

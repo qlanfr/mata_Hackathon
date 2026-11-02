@@ -144,6 +144,16 @@ pub struct TrialReport {
     pub correctness: Option<CorrectnessReport>,
     /// Golden check against the baseline itself; a failure here means the environment is wrong.
     pub baseline_correctness: Option<CorrectnessReport>,
+    /// Response invariants on the candidate's golden and sampled responses.
+    #[serde(default)]
+    pub invariants: Option<CorrectnessReport>,
+    /// The same invariants on the baseline. A failure is a bug the original code already has.
+    #[serde(default)]
+    pub baseline_invariants: Option<CorrectnessReport>,
+    /// Sampled requests answered by both services, compared with each other. Only mismatches are
+    /// listed in `cases`; `total` and `passed` count every sampled request.
+    #[serde(default)]
+    pub sample: Option<CorrectnessReport>,
     pub pairs: Vec<Pair>,
     /// The candidate process exited during the trial (crash, OOM kill, ...).
     pub candidate_crashed: Option<String>,
@@ -163,6 +173,9 @@ pub struct BaselineReport {
     pub source_hash: String,
     pub build: Option<BuildReport>,
     pub correctness: Option<CorrectnessReport>,
+    /// Response invariants on the baseline's golden and sampled responses.
+    #[serde(default)]
+    pub invariants: Option<CorrectnessReport>,
     /// Baseline against a second copy of itself.
     pub aa_pairs: Vec<Pair>,
     pub logs: ServiceLogSummary,

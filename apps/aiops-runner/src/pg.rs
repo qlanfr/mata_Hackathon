@@ -38,8 +38,42 @@ impl Postgres {
         if !self.is_ready().await {
             self.start(cancel).await?;
         }
+        // A server already on the port may belong to another work directory (another runner, or
+        // a CLI run whose files are gone). Using it would mean experimenting on someone else's
+        // data, so only our own server is accepted.
+        let theirs = self.query("postgres", "SHOW data_directory").await?;
+        let ours = self.root.join("data");
+        anyhow::ensure!(
+            std::path::Path::new(&theirs) == ours
+                || std::fs::canonicalize(&theirs).ok() == std::fs::canonicalize(&ours).ok(),
+            "port {} is served by another PostgreSQL (data directory {theirs}, expected {})",
+            self.port,
+            ours.display()
+        );
         self.ensure_seeded(rt, cancel).await?;
         Ok(self.url(&rt.spec.database.name))
+    }
+
+    /// Stops our server if it runs. One-shot CLI commands call this when they finish; the job
+    /// server keeps the database up between jobs.
+    pub async fn stop(&self) {
+        let data = self.root.join("data");
+        if !data.join("postmaster.pid").exists() {
+            return;
+        }
+        let mut pg_ctl = self.server_command("pg_ctl");
+        pg_ctl
+            .arg("-D")
+            .arg(&data)
+            .args(["-m", "fast", "-w", "stop"]);
+        match pg_ctl.output().await {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => tracing::warn!(
+                stderr = %String::from_utf8_lossy(&out.stderr).trim(),
+                "pg_ctl stop failed"
+            ),
+            Err(e) => tracing::warn!(error = %e, "pg_ctl stop failed"),
+        }
     }
 
     /// Server binaries refuse to run as root, so they go through `runuser` when configured.

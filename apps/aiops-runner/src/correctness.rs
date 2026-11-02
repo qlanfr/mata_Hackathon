@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use aiops_core::report::{CaseResult, CorrectnessReport};
-use aiops_core::scenario::CaseRequest;
+use aiops_core::scenario::{CaseRequest, SampleSpec};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -89,6 +89,68 @@ pub async fn check(
     }
 }
 
+/// Paths of the sampled requests: the first `spec.requests` users of the load script's user
+/// sequence. The sequence is a fixed permutation (7919 is coprime with the user count), so the
+/// sample is spread across the data instead of following a stride that may line up with it.
+pub fn sample_paths(spec: &SampleSpec, users: u32) -> Vec<String> {
+    (0..spec.requests as u64)
+        .map(|i| {
+            let user = 1 + (i * 7919) % users.max(1) as u64;
+            spec.path.replace("{user}", &user.to_string())
+        })
+        .collect()
+}
+
+/// Fetches each path once, one request at a time. Sequential on purpose: these checks are about
+/// answers; behaviour under concurrency is the load test's job.
+pub async fn fetch_each(
+    client: &reqwest::Client,
+    base_url: &str,
+    paths: &[String],
+) -> Vec<crate::invariants::Response> {
+    let mut out = Vec::with_capacity(paths.len());
+    for path in paths {
+        let result = fetch(client, base_url, path)
+            .await
+            .map_err(|e| format!("request failed: {e}"));
+        out.push((path.clone(), result));
+    }
+    out
+}
+
+/// Compares the candidate's answers with the baseline's, request by request.
+pub fn compare(
+    baseline: &[crate::invariants::Response],
+    candidate: &[crate::invariants::Response],
+) -> CorrectnessReport {
+    const MAX_LISTED: usize = 20;
+    let mut cases = Vec::new();
+    let mut failed = 0;
+    for ((path, base), (_, cand)) in baseline.iter().zip(candidate) {
+        let detail = match (base, cand) {
+            (Err(e), _) => Some(format!("baseline {e}")),
+            (Ok(_), Err(e)) => Some(e.clone()),
+            (Ok((bs, _)), Ok((cs, _))) if bs != cs => Some(format!("status {cs}, baseline {bs}")),
+            (Ok((_, bb)), Ok((_, cb))) => first_difference("$", bb, cb),
+        };
+        if let Some(detail) = detail {
+            failed += 1;
+            if cases.len() < MAX_LISTED {
+                cases.push(CaseResult {
+                    name: path.clone(),
+                    passed: false,
+                    detail: Some(detail),
+                });
+            }
+        }
+    }
+    CorrectnessReport {
+        total: baseline.len(),
+        passed: baseline.len() - failed,
+        cases,
+    }
+}
+
 /// Records the baseline's answers as the new golden cases.
 pub async fn capture(
     client: &reqwest::Client,
@@ -165,6 +227,40 @@ fn short(v: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sample_follows_the_load_sequence() {
+        let spec = SampleSpec {
+            requests: 3,
+            path: "/users/{user}/orders?limit=20".into(),
+        };
+        assert_eq!(
+            sample_paths(&spec, 2000),
+            vec![
+                "/users/1/orders?limit=20",
+                "/users/1920/orders?limit=20",
+                "/users/1839/orders?limit=20"
+            ]
+        );
+    }
+
+    #[test]
+    fn compare_lists_only_mismatches() {
+        let ok = |b: Value| -> Result<(u16, Value), String> { Ok((200, b)) };
+        let base = vec![
+            ("/a".to_string(), ok(json!({"x": 1}))),
+            ("/b".to_string(), ok(json!({"x": 2}))),
+            ("/c".to_string(), ok(json!({"x": 3}))),
+        ];
+        let cand = vec![
+            ("/a".to_string(), ok(json!({"x": 1}))),
+            ("/b".to_string(), ok(json!({"x": 5}))),
+            ("/c".to_string(), Err("request failed: reset".to_string())),
+        ];
+        let r = compare(&base, &cand);
+        assert_eq!((r.total, r.passed, r.cases.len()), (3, 1, 2));
+        assert_eq!(r.cases[0].detail.as_deref(), Some("$.x is 5, expected 2"));
+    }
 
     #[test]
     fn finds_nested_differences() {

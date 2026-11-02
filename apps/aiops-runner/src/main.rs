@@ -6,6 +6,7 @@ mod api;
 mod builder;
 mod config;
 mod correctness;
+mod invariants;
 mod jobs;
 mod load;
 mod logs;
@@ -58,6 +59,15 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Correctness checks only (golden, invariants, sample) for one patch, without load. Prints
+    /// the TrialReport. Every check runs even after one fails, so mutation testing can see which
+    /// checks catch a change.
+    Check {
+        #[arg(long)]
+        patch: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Regenerate the golden cases from the baseline.
     Golden,
 }
@@ -75,7 +85,18 @@ async fn main() -> anyhow::Result<()> {
     let rt = Runtime::init(cli.opts).await?;
     tracing::info!(boot_id = rt.boot_id(), scenario = %rt.spec.id, hash = %&rt.scenario_hash[..12], "runner ready");
 
-    match cli.command {
+    let one_shot = !matches!(cli.command, Command::Serve { .. });
+    let result = run(&rt, cli.command).await;
+    if one_shot {
+        // Leave nothing running: the next CLI run may use another work directory.
+        crate::pg::Postgres::new(&rt).stop().await;
+    }
+    result
+}
+
+async fn run(rt: &Runtime, command: Command) -> anyhow::Result<()> {
+    let rt = rt.clone();
+    match command {
         Command::Serve { listen } => serve(rt, &listen).await,
         Command::Baseline { out } => {
             let ctl = interruptible();
@@ -107,6 +128,17 @@ async fn main() -> anyhow::Result<()> {
                 &serde_json::json!({ "evaluation": evaluation, "report": report }),
                 out,
             )
+        }
+        Command::Check { patch, out } => {
+            let patch: PatchProposal = serde_json::from_str(
+                &std::fs::read_to_string(&patch)
+                    .with_context(|| format!("cannot read {}", patch.display()))?,
+            )
+            .context("invalid patch file")?;
+            let ctl = interruptible();
+            let report =
+                jobs::run_trial_mode(&rt, &patch, &ctl, jobs::TrialMode::CorrectnessOnly).await;
+            emit(&serde_json::to_value(&report)?, out)
         }
         Command::Golden => {
             let written = jobs::generate_golden(&rt, &JobControl::default()).await?;

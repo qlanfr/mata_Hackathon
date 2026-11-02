@@ -21,6 +21,12 @@ startup_timeout_s = 20
 
 [correctness]
 cases_dir = "scenarios/n-plus-one/cases"
+# Rules every successful response must follow (built into the runner), checked on the baseline and
+# the candidate alike: they also catch bugs the original code already had.
+invariants = ["orders-page"]
+# 200 more requests, answered by both services and compared with each other: the first 200 users
+# of the load script's user sequence.
+sample = { requests = 200, path = "/users/{user}/orders?limit=20" }
 requests = [
   { name = "first-page", path = "/users/1/orders?limit=20" },
   { name = "default-page", path = "/users/1234/orders" },

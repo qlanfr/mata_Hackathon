@@ -66,7 +66,10 @@ PY
   fi
   got="${verdict%%$'\t'*}"
   reason="${verdict#*$'\t'}"
-  if [ "$got" = "$expect" ] && [[ "$reason" == *"$want_reason"* ]]; then
+  reason_ok=false  # want_reason may list alternatives separated by "|"
+  IFS='|' read -ra wanted <<< "$want_reason"
+  for w in "${wanted[@]}"; do [[ "$reason" == *"$w"* ]] && reason_ok=true; done
+  if [ "$got" = "$expect" ] && $reason_ok; then
     status=PASS
   elif [ "$got" = "$expect" ]; then
     status=FAIL  # right verdict for the wrong reason: the intended gate did not fire

@@ -123,6 +123,15 @@ async fn baseline_binary(
     Ok((bin, source_hash, report))
 }
 
+/// Golden request paths first, then the sampled ones (see `correctness::sample_paths`).
+fn probe_paths(rt: &Runtime, cases: &[correctness::GoldenCase]) -> Vec<String> {
+    let mut paths: Vec<String> = cases.iter().map(|c| c.request.path.clone()).collect();
+    if let Some(sample) = &rt.spec.correctness.sample {
+        paths.extend(correctness::sample_paths(sample, rt.spec.load.users));
+    }
+    paths
+}
+
 fn service_config<'a>(
     rt: &Runtime,
     label: &'a str,
@@ -239,6 +248,21 @@ async fn baseline_inner(
     let passed = checked.all_passed();
     report.correctness = Some(checked);
     anyhow::ensure!(passed, "baseline does not match the golden cases");
+    // The original code is checked against the API's own rules too: a violation here is a bug
+    // it already had, and no candidate can be judged against it.
+    let responses = correctness::fetch_each(&http, &a.base_url, &probe_paths(rt, &cases)).await;
+    let invariants = crate::invariants::check(&rt.spec.correctness.invariants, &responses);
+    let ok = invariants.all_passed() || invariants.total == 0;
+    let first = invariants
+        .cases
+        .first()
+        .map(|c| format!("{}: {}", c.name, c.detail.clone().unwrap_or_default()));
+    report.invariants = Some(invariants);
+    anyhow::ensure!(
+        ok,
+        "the original service violates its response invariants: {}",
+        first.unwrap_or_default()
+    );
     timer.lap("correctness");
 
     ctl.set_phase("warmup");
@@ -303,7 +327,26 @@ async fn baseline_inner(
 // ---------------------------------------------------------------------------------------------
 // Trial job
 
+/// How far a trial goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrialMode {
+    /// Correctness, then the paired load measurement.
+    Full,
+    /// Every correctness check (golden, invariants, sample) on both services, even after one
+    /// fails, and no load. Used by mutation testing to see which checks catch a change.
+    CorrectnessOnly,
+}
+
 pub async fn run_trial(rt: &Runtime, patch: &PatchProposal, ctl: &JobControl) -> TrialReport {
+    run_trial_mode(rt, patch, ctl, TrialMode::Full).await
+}
+
+pub async fn run_trial_mode(
+    rt: &Runtime,
+    patch: &PatchProposal,
+    ctl: &JobControl,
+    mode: TrialMode,
+) -> TrialReport {
     let mut report = TrialReport {
         trial_id: uuid::Uuid::new_v4().to_string(),
         scenario_id: rt.spec.id.clone(),
@@ -313,7 +356,7 @@ pub async fn run_trial(rt: &Runtime, patch: &PatchProposal, ctl: &JobControl) ->
         ..Default::default()
     };
     let dir = rt.work_dir.join("trials").join(&report.trial_id);
-    if let Err(err) = trial_inner(rt, patch, ctl, &dir, &mut report).await {
+    if let Err(err) = trial_inner(rt, patch, ctl, &dir, &mut report, mode).await {
         report.execution_error = Some(if is_cancelled(&err) {
             "cancelled".into()
         } else {
@@ -332,6 +375,7 @@ async fn trial_inner(
     ctl: &JobControl,
     dir: &Path,
     report: &mut TrialReport,
+    mode: TrialMode,
 ) -> anyhow::Result<()> {
     let mut timings = BTreeMap::new();
     let mut timer = Timer::new(&mut timings);
@@ -404,12 +448,28 @@ async fn trial_inner(
     let cases = correctness::load_cases(&rt.repo_path(&rt.spec.correctness.cases_dir))?;
     let base_check = correctness::check(&http, &base.base_url, &cases).await;
     let cand_check = correctness::check(&http, &cand.base_url, &cases).await;
-    let proceed = base_check.all_passed() && cand_check.all_passed();
+    let mut proceed = base_check.all_passed() && cand_check.all_passed();
     report.baseline_correctness = Some(base_check);
     report.correctness = Some(cand_check);
+    if proceed || mode == TrialMode::CorrectnessOnly {
+        // Beyond the stored answers: the same golden and sampled requests to both services,
+        // checked against the response invariants and compared with each other.
+        let paths = probe_paths(rt, &cases);
+        let base_resp = correctness::fetch_each(&http, &base.base_url, &paths).await;
+        let cand_resp = correctness::fetch_each(&http, &cand.base_url, &paths).await;
+        let sets = &rt.spec.correctness.invariants;
+        let base_inv = crate::invariants::check(sets, &base_resp);
+        let cand_inv = crate::invariants::check(sets, &cand_resp);
+        let sampled = correctness::compare(&base_resp[cases.len()..], &cand_resp[cases.len()..]);
+        let clean = |r: &aiops_core::report::CorrectnessReport| r.total == 0 || r.all_passed();
+        proceed = clean(&base_inv) && clean(&cand_inv) && clean(&sampled);
+        report.baseline_invariants = Some(base_inv);
+        report.invariants = Some(cand_inv);
+        report.sample = Some(sampled);
+    }
     timer.lap("correctness");
 
-    if proceed {
+    if proceed && mode == TrialMode::Full {
         ctl.set_phase("warmup");
         for svc in [&base, &cand] {
             load::run(

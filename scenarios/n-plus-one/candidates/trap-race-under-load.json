@@ -1,0 +1,15 @@
+{
+  "summary": "Guard page building with a global in-progress flag that assumes one request at a time; concurrent requests panic. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/repo.rs",
+      "search": "use sqlx::{PgPool, Row};\n",
+      "replace": "use std::sync::atomic::{AtomicBool, Ordering};\n\nuse sqlx::{PgPool, Row};\n"
+    },
+    {
+      "path": "src/repo.rs",
+      "search": "/// Loads the line items of each order, with product names.\npub async fn load_order_details(\n    pool: &PgPool,\n    tracker: &Tracker,\n    orders: Vec<OrderRow>,\n) -> Result<Vec<OrderView>, sqlx::Error> {\n",
+      "replace": "/// Set while a request is building its page.\nstatic PAGE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);\n\n/// Loads the line items of each order, with product names.\npub async fn load_order_details(\n    pool: &PgPool,\n    tracker: &Tracker,\n    orders: Vec<OrderRow>,\n) -> Result<Vec<OrderView>, sqlx::Error> {\n    // Build pages one at a time, so a shared item cache can be added later without locking.\n    assert!(\n        !PAGE_IN_PROGRESS.swap(true, Ordering::SeqCst),\n        \"another page is being built\"\n    );\n    let page = load_page(pool, tracker, orders).await;\n    PAGE_IN_PROGRESS.store(false, Ordering::SeqCst);\n    page\n}\n\nasync fn load_page(\n    pool: &PgPool,\n    tracker: &Tracker,\n    orders: Vec<OrderRow>,\n) -> Result<Vec<OrderView>, sqlx::Error> {\n"
+    }
+  ]
+}

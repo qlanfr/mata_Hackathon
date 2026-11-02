@@ -57,6 +57,24 @@ pub struct CorrectnessSpec {
     pub cases_dir: String,
     /// Requests used to (re)generate the golden cases from the baseline.
     pub requests: Vec<CaseRequest>,
+    /// Named response invariant sets (built into the runner), checked on every successful golden
+    /// and sampled response of both the baseline and the candidate. They state the API's own
+    /// rules, so unlike the golden cases they also catch bugs the original code already had.
+    #[serde(default)]
+    pub invariants: Vec<String>,
+    /// More requests, sent to both the baseline and the candidate and compared with each other.
+    #[serde(default)]
+    pub sample: Option<SampleSpec>,
+}
+
+/// Requests for the baseline-versus-candidate comparison: the first `requests` users of the load
+/// script's user sequence (`1 + (i * 7919) % load.users`), each with `path`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SampleSpec {
+    pub requests: u32,
+    /// Request path with a `{user}` placeholder.
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

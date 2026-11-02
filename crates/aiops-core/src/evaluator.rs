@@ -3,12 +3,16 @@
 //! Gates run in a fixed order and the first gate that fires decides the outcome:
 //!
 //! 1. patch refused by policy → `POLICY_REJECTED`; build or runner failure → `EXECUTION_ERROR`
-//! 2. any golden case differs → `REJECTED`
+//! 2. any golden case differs, a response breaks an invariant, or a sampled request is answered
+//!    differently from the baseline → `REJECTED` (the baseline breaking an invariant is an
+//!    `EXECUTION_ERROR`: a bug the original already had)
 //! 3. noisy or incomplete measurement → `INCONCLUSIVE`
 //! 4. errors, timeouts or crashes got worse → `REJECTED`
 //! 5. median p95 improvement ≥ target and every pair improved → `VERIFIED`
-//! 6. pairs disagree on direction → `INCONCLUSIVE`
-//! 7. consistent but short of the target (or a regression) → `REJECTED`
+//! 6. every pair misses the target by more than the measured noise (including a regression)
+//!    → `REJECTED`: the claim is clearly false
+//! 7. anything closer to the target than the noise → `INCONCLUSIVE`: this measurement cannot
+//!    decide (the orchestrator measures such a trial once more)
 
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +53,15 @@ pub struct Evaluation {
     pub aa_noise: Option<f64>,
     /// Spread of the baseline p95 across this trial's pairs.
     pub baseline_spread: Option<f64>,
+}
+
+/// The first listed failure of a check, as `name: detail`.
+fn first_failure(r: &crate::report::CorrectnessReport) -> String {
+    r.cases
+        .iter()
+        .find(|c| !c.passed)
+        .map(|c| format!("{}: {}", c.name, c.detail.as_deref().unwrap_or("")))
+        .unwrap_or_default()
 }
 
 /// Median relative p95 difference between the two sides of A/A pairs.
@@ -177,6 +190,48 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
                 Outcome::ExecutionError,
                 "correctness was not checked".into(),
             )
+        }
+    }
+    if let Some(base) = &report.baseline_invariants {
+        if !base.all_passed() && base.total > 0 {
+            return decide(
+                eval,
+                Outcome::ExecutionError,
+                format!(
+                    "the original service violates its response invariants ({} of {} responses): {}",
+                    base.total - base.passed,
+                    base.total,
+                    first_failure(base)
+                ),
+            );
+        }
+    }
+    if let Some(inv) = &report.invariants {
+        if !inv.all_passed() && inv.total > 0 {
+            return decide(
+                eval,
+                Outcome::Rejected,
+                format!(
+                    "response invariants violated ({} of {} responses): {}",
+                    inv.total - inv.passed,
+                    inv.total,
+                    first_failure(inv)
+                ),
+            );
+        }
+    }
+    if let Some(sample) = &report.sample {
+        if !sample.all_passed() && sample.total > 0 {
+            return decide(
+                eval,
+                Outcome::Rejected,
+                format!(
+                    "candidate differs from the baseline on {} of {} sampled requests: {}",
+                    sample.total - sample.passed,
+                    sample.total,
+                    first_failure(sample)
+                ),
+            );
         }
     }
     if let Some(crash) = &report.candidate_crashed {
@@ -314,26 +369,42 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
         );
         return decide(eval, Outcome::Verified, reason);
     }
-    if !all_better && !all_worse {
-        let reason = format!(
-            "pairs disagree on direction: {:?}",
-            eval.improvements
-                .iter()
-                .map(|&i| pct(i))
-                .collect::<Vec<_>>()
-        );
-        return decide(eval, Outcome::Inconclusive, reason);
+    // A pair is clearly short of the target only when it misses by more than the noise measured
+    // for this trial (run-level A/A noise or the spread of this trial's baseline, whichever is
+    // larger). When every pair is clearly short, the claim is false whatever the noise did.
+    let noise = aa_noise
+        .unwrap_or(0.0)
+        .max(eval.baseline_spread.unwrap_or(0.0));
+    let bar = contract.min_improvement - noise;
+    let pairs = eval
+        .improvements
+        .iter()
+        .map(|&i| pct(i))
+        .collect::<Vec<_>>();
+    if eval.improvements.iter().all(|&i| i < bar) {
+        let reason = if all_worse {
+            format!("candidate is slower: median p95 change {}", pct(med))
+        } else {
+            format!(
+                "every pair is below the {} target by more than the {} measurement noise: {:?}",
+                pct(contract.min_improvement),
+                pct(noise),
+                pairs
+            )
+        };
+        return decide(eval, Outcome::Rejected, reason);
     }
-    let reason = if all_worse {
-        format!("candidate is slower: median p95 change {}", pct(med))
+    let reason = if !all_better && !all_worse {
+        format!("pairs disagree on direction: {pairs:?}")
     } else {
         format!(
-            "median p95 improvement {} is below the {} target",
+            "too close to call: median p95 improvement {} against the {} target with {} measurement noise",
             pct(med),
-            pct(contract.min_improvement)
+            pct(contract.min_improvement),
+            pct(noise)
         )
     };
-    decide(eval, Outcome::Rejected, reason)
+    decide(eval, Outcome::Inconclusive, reason)
 }
 
 #[cfg(test)]
@@ -441,6 +512,48 @@ mod tests {
         let e = evaluate(&contract(), &r, None);
         assert_eq!(e.outcome, Outcome::Rejected);
         assert!(e.reasons[0].contains("golden"));
+    }
+
+    #[test]
+    fn invariant_and_sample_failures_are_rejected_and_named() {
+        let failing = |name: &str| CorrectnessReport {
+            total: 200,
+            passed: 199,
+            cases: vec![CaseResult {
+                name: name.into(),
+                passed: false,
+                detail: Some("differs".into()),
+            }],
+        };
+        let mut r = report(vec![
+            pair(0, 10.0, 2.0),
+            pair(1, 10.0, 2.0),
+            pair(2, 10.0, 2.0),
+        ]);
+        r.sample = Some(failing("/users/387/orders"));
+        let e = evaluate(&contract(), &r, None);
+        assert_eq!(e.outcome, Outcome::Rejected);
+        assert!(
+            e.reasons[0].contains("1 of 200 sampled requests: /users/387/orders"),
+            "{:?}",
+            e.reasons
+        );
+
+        r.invariants = Some(failing("/users/1/orders"));
+        let e = evaluate(&contract(), &r, None);
+        assert!(
+            e.reasons[0].starts_with("response invariants violated"),
+            "{:?}",
+            e.reasons
+        );
+
+        r.baseline_invariants = Some(failing("/users/1/orders"));
+        let e = evaluate(&contract(), &r, None);
+        assert_eq!(
+            e.outcome,
+            Outcome::ExecutionError,
+            "a bug the original already has"
+        );
     }
 
     #[test]
@@ -578,6 +691,45 @@ mod tests {
         let e = evaluate(&contract(), &r, None);
         assert_eq!(e.outcome, Outcome::Rejected);
         assert!(e.reasons[0].contains("slower"));
+    }
+
+    #[test]
+    fn no_effect_is_rejected_even_when_pairs_disagree() {
+        // Measured on a candidate that only dropped two Vec::with_capacity calls.
+        let r = report(vec![
+            pair(0, 10.0, 9.54),
+            pair(1, 10.0, 10.19),
+            pair(2, 10.0, 11.12),
+        ]);
+        let e = evaluate(&contract(), &r, Some(0.05));
+        assert_eq!(e.outcome, Outcome::Rejected, "{:?}", e.reasons);
+        assert!(e.reasons[0].contains("below the 20.0% target"));
+    }
+
+    #[test]
+    fn a_pair_within_noise_of_the_target_is_inconclusive() {
+        let r = report(vec![
+            pair(0, 10.0, 8.2),
+            pair(1, 10.0, 8.1),
+            pair(2, 10.0, 7.9),
+        ]);
+        // Median 18%: short of 20%, but the best pair (21%) is within the 5% noise.
+        let e = evaluate(&contract(), &r, Some(0.05));
+        assert_eq!(e.outcome, Outcome::Inconclusive, "{:?}", e.reasons);
+        assert!(e.reasons[0].contains("too close to call"));
+        // Even with almost no noise, the best pair (21%) still clears the 19.9% bar.
+        let e = evaluate(&contract(), &r, Some(0.001));
+        assert_eq!(e.outcome, Outcome::Inconclusive);
+        // Pairs of 15–17% with almost no noise are clearly short of the target.
+        let r = report(vec![
+            pair(0, 10.0, 8.5),
+            pair(1, 10.0, 8.4),
+            pair(2, 10.0, 8.3),
+        ]);
+        assert_eq!(
+            evaluate(&contract(), &r, Some(0.001)).outcome,
+            Outcome::Rejected
+        );
     }
 
     #[test]

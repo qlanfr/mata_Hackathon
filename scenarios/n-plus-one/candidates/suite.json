@@ -73,10 +73,10 @@
   },
   {
     "file": "trap-no-measurable-effect.json",
-    "expect": "INCONCLUSIVE",
-    "reason": "pairs disagree on direction",
+    "expect": "REJECTED",
+    "reason": "below the 20.0% target|candidate is slower",
     "tolerate": [
-      "REJECTED"
+      "INCONCLUSIVE"
     ],
     "gate": "improvement"
   },
@@ -91,6 +91,13 @@
   },
   {
     "file": "trap-crashes-on-last-product.json",
+    "expect": "REJECTED",
+    "reason": "sampled requests",
+    "tolerate": [],
+    "gate": "sample"
+  },
+  {
+    "file": "trap-race-under-load.json",
     "expect": "REJECTED",
     "reason": "candidate error rate",
     "tolerate": [
