@@ -19,6 +19,12 @@ pub async fn build(
     cancel: &CancellationToken,
 ) -> anyhow::Result<BuildReport> {
     let started = Instant::now();
+    // Every build shares one target directory, and cargo fingerprints path packages relative to
+    // their workspace root, so the baseline and candidate copies of the service share one
+    // fingerprint. Cargo then rebuilds only when a source file is newer than the last build. A
+    // candidate written before the baseline was built would look up to date, and its "build"
+    // would hand back the baseline binary. Stamping the sources now forces a real build.
+    touch_tree(src_dir, std::time::SystemTime::now())?;
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
         .arg("--release")
@@ -63,4 +69,47 @@ pub async fn build(
         log_sha256: aiops_core::sha256_hex(full_log),
         log_tail,
     })
+}
+
+/// Sets the modification time of every file under `dir` (except build output) to `when`.
+fn touch_tree(dir: &Path, when: std::time::SystemTime) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_name() == "target" {
+            continue;
+        }
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            touch_tree(&entry.path(), when)?;
+        } else if kind.is_file() {
+            std::fs::File::options()
+                .write(true)
+                .open(entry.path())?
+                .set_modified(when)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn touch_tree_stamps_every_source_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/nested")).unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "x").unwrap();
+        std::fs::write(dir.path().join("src/nested/a.rs"), "x").unwrap();
+        let when = SystemTime::now() + Duration::from_secs(3600);
+        touch_tree(dir.path(), when).unwrap();
+        for file in ["Cargo.toml", "src/nested/a.rs"] {
+            let modified = std::fs::metadata(dir.path().join(file))
+                .unwrap()
+                .modified()
+                .unwrap();
+            assert_eq!(modified, when, "{file}");
+        }
+    }
 }

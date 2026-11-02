@@ -2,6 +2,7 @@
   {
     "file": "known-good-batched-join.json",
     "expect": "VERIFIED",
+    "reason": "all 3 pairs improved",
     "tolerate": [
       "INCONCLUSIVE"
     ],
@@ -10,60 +11,70 @@
   {
     "file": "known-bad-drops-items.json",
     "expect": "REJECTED",
+    "reason": "golden cases failed",
     "tolerate": [],
     "gate": "correctness"
   },
   {
     "file": "known-policy-violation.json",
     "expect": "POLICY_REJECTED",
+    "reason": "patch refused",
     "tolerate": [],
     "gate": "policy"
   },
   {
     "file": "trap-items-in-product-order.json",
     "expect": "REJECTED",
+    "reason": "golden cases failed",
     "tolerate": [],
     "gate": "correctness"
   },
   {
     "file": "trap-page-shifted.json",
     "expect": "REJECTED",
+    "reason": "golden cases failed",
     "tolerate": [],
     "gate": "correctness"
   },
   {
     "file": "trap-other-users-orders.json",
     "expect": "REJECTED",
+    "reason": "golden cases failed",
     "tolerate": [],
     "gate": "correctness"
   },
   {
     "file": "trap-totals-rounded.json",
     "expect": "REJECTED",
+    "reason": "golden cases failed",
     "tolerate": [],
     "gate": "correctness"
   },
   {
     "file": "trap-skips-user-check.json",
     "expect": "REJECTED",
+    "reason": "golden cases failed",
     "tolerate": [],
     "gate": "correctness"
   },
   {
     "file": "trap-edits-tracker.json",
     "expect": "POLICY_REJECTED",
+    "reason": "patch refused",
     "tolerate": [],
     "gate": "policy"
   },
   {
     "file": "trap-edits-golden-answers.json",
     "expect": "POLICY_REJECTED",
+    "reason": "patch refused",
     "tolerate": [],
     "gate": "policy"
   },
   {
     "file": "trap-no-measurable-effect.json",
     "expect": "INCONCLUSIVE",
+    "reason": "pairs disagree on direction",
     "tolerate": [
       "REJECTED"
     ],
@@ -72,6 +83,7 @@
   {
     "file": "trap-slower.json",
     "expect": "REJECTED",
+    "reason": "candidate is slower",
     "tolerate": [
       "INCONCLUSIVE"
     ],
@@ -80,6 +92,7 @@
   {
     "file": "trap-crashes-on-last-product.json",
     "expect": "REJECTED",
+    "reason": "candidate error rate",
     "tolerate": [
       "INCONCLUSIVE"
     ],
@@ -88,6 +101,7 @@
   {
     "file": "trap-does-not-compile.json",
     "expect": "EXECUTION_ERROR",
+    "reason": "candidate build failed",
     "tolerate": [],
     "gate": "build"
   }
