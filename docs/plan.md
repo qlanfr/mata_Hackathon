@@ -279,6 +279,12 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
 | trap-crashes-on-last-product (1,000칸 캐시 off-by-one) | 오류율 | REJECTED | 오류율 0.30% vs 0.00% |
 | trap-does-not-compile (`Vec<i32>` 타입 오류) | 빌드 | EXECUTION_ERROR | 빌드 실패 |
 
+빌드 버그를 고친 뒤 판정 이유까지 대조하며 차가운 시작으로 다시 돌렸다. 14개 모두 기대 범위 안이었다.
+- 13개는 판정과 이유가 모두 일치했다.
+- 효과 없는 변경은 이번에 "개선 5.8% < 20%"로 REJECTED였다(허용 범위).
+- 정상 후보 91.1%, 느린 후보 p95 −395%, 크래시 함정은 오류율 0.30%.
+- CI([Harness suite run 41486698934](https://github.com/qlanfr/mata_Hackathon/actions/runs/41486698934)): runner 이미지 안, 네트워크 차단, 후보마다 새 컨테이너로 돌렸다. 13개 PASS, 1개 허용, 실패 0이다. 효과 없는 변경은 "−2.1% 느려짐"으로 REJECTED였고, 정상 후보는 91.4%였다.
+
 함정을 만들다가 golden의 빈틈을 하나 찾았다.
 - 기존 golden 페이지의 주문들은 모두 항목 순서와 상품 ID 순서가 우연히 같았다.
 - 그래서 "JOIN으로 바꾸면서 상품 ID로 정렬"한 오답이 golden 11/11을 통과했고, **VERIFIED(개선 91.4%)를 받았다.**
@@ -290,6 +296,19 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
 - 그 결과 run에는 옛 시나리오 해시(`dec57cc5404d`, 11개)가 기록됐고, runner 보고서에는 새 해시(`939f0d479f38`, 12개)가 찍혔다. 판정은 VERIFIED였다.
 - 수정: aiopsd가 runner 보고서의 시나리오 해시를 run의 해시와 대조한다. 다르면 "scenario changed during the run"으로 run을 멈춘다.
 - `scripts/drive-run.sh`는 이 경우와 "모든 trial이 INCONCLUSIVE라 EXHAUSTED"인 경우에만 새 run을 한 번 더 시작한다. 두 번째 경우는 GitHub 러너에서 trial 내 baseline 편차가 28%와 46%로 나와 Container E2E가 실패했던 일 때문이다. 이때 잘못된 VERIFIED는 없었다.
+
+CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러났다. CI는 후보마다 새 컨테이너에서 돌린다.
+- 증상: 컴파일되지 않는 패치가 빌드에 성공했다. 항목을 빼는 패치가 golden을 통과했다. 모든 후보의 개선율이 ±2%였다.
+- 원인:
+  - 원본 바이너리가 캐시되지 않은 runner에서 trial은 후보 복사·패치 → 원본 빌드 → 후보 빌드 순으로 진행한다.
+  - 모든 빌드가 cargo target 디렉터리 하나를 공유한다. 최근 cargo는 경로 패키지의 fingerprint를 작업 공간 기준 상대 경로로 계산하므로, 두 사본의 fingerprint가 같아진다.
+  - 후보 소스가 방금 끝난 원본 빌드보다 오래돼 보여 cargo가 빌드를 건너뛰었다. 그래서 원본 바이너리가 후보로 복사됐다.
+  - 원본이 이미 캐시된 runner(로컬, Cloudflare)에서는 드러나지 않았다. Cloudflare에서도 실행 중 runner가 재시작되면 생길 수 있었다.
+  - 후보가 원본과 같아질 뿐이라 개선을 숨기는 쪽(거짓 음성)으로만 작용하고, 없는 개선을 만들지는 못한다.
+- 수정: 빌드 직전에 후보 소스의 수정 시각을 현재로 찍는다. 같은 조건(원본 미캐시)을 로컬에서 재현해 수정 전에는 빌드가 0.25초 만에 "성공"하고, 수정 후에는 E0277로 실패함을 확인했다.
+- 함정 모음 강화:
+  - 판정 이유도 대조한다. CI에서는 크래시 함정이 오류율이 아니라 "개선 부족"으로 기각되는 등 맞는 판정을 틀린 이유로 받은 경우가 있었다.
+  - 로컬 실행도 trial마다 새 작업 디렉터리(차가운 시작)로 돌린다.
 
 오류율 함정이 golden을 통과하는 이유: 상품 1000은 golden 페이지에 한 번도 나오지 않는다. 부하 측정에서는 2,000명 중 6명의 첫 페이지에 나오며, seed 시뮬레이션으로 미리 계산했다. 측정된 오류율 0.30%는 이 6/2,000과 일치한다.
 
