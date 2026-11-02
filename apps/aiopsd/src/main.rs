@@ -6,6 +6,7 @@ mod api;
 mod artifacts;
 mod db;
 mod events;
+mod lease;
 mod llm;
 mod orchestrator;
 mod roles;
@@ -21,6 +22,7 @@ use clap::Parser;
 
 use crate::artifacts::{Artifacts, BlobStore};
 use crate::db::Db;
+use crate::lease::Lease;
 use crate::llm::{MetaProvider, Provider, ReplayProvider};
 use crate::orchestrator::App;
 use crate::runner_client::RunnerClient;
@@ -90,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
     let scenario_hash = spec.content_hash();
 
     let db = Db::connect(&opts.db, &repo_root.join(&opts.migrations)).await?;
+    let db_for_lease = db.clone();
     let artifacts = Artifacts::new(db.clone(), BlobStore::from_url(&opts.artifacts)?);
     let api_key = std::env::var("META_API_KEY").unwrap_or_default();
     // `auto` uses Meta only when both the key and the model are configured, so a half-finished
@@ -117,12 +120,19 @@ async fn main() -> anyhow::Result<()> {
         scenario_hash,
         repo_root,
         tick_lock: tokio::sync::Mutex::new(()),
+        lease: Lease::new(
+            db_for_lease,
+            "orchestrator",
+            uuid::Uuid::new_v4().to_string(),
+            LEASE_TTL_MS,
+        ),
     });
+    tracing::info!(instance = %app.lease.holder(), "orchestrator instance");
 
     let ticker = app.clone();
     let interval = Duration::from_millis(opts.tick_ms.max(500));
     tokio::spawn(async move {
-        loop {
+        while !ticker.lease.is_stopping() {
             if let Err(e) = ticker.tick().await {
                 tracing::warn!(error = %format!("{e:#}"), "tick failed");
             }
@@ -130,12 +140,45 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Keeps the lease while a single tick runs longer than the TTL (several model turns).
+    let heart = app.clone();
+    tokio::spawn(async move {
+        while !heart.lease.is_stopping() {
+            tokio::time::sleep(Duration::from_millis(LEASE_TTL_MS / 4)).await;
+            if let Err(e) = heart.lease.renew().await {
+                tracing::warn!(error = %format!("{e:#}"), "lease renewal failed");
+            }
+        }
+    });
+
     let listener = tokio::net::TcpListener::bind(&opts.listen).await?;
     tracing::info!(listen = %opts.listen, "serving API");
-    axum::serve(listener, api::router(app))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
+    axum::serve(listener, api::router(app.clone()))
+        .with_graceful_shutdown(shutdown(app))
         .await?;
     Ok(())
+}
+
+/// Lease lifetime. A holder that dies without releasing blocks other instances this long.
+const LEASE_TTL_MS: u64 = 60_000;
+
+/// Waits for SIGTERM (Cloudflare stops containers with it; as PID 1 the process would otherwise
+/// ignore it) or Ctrl-C, lets the tick in progress finish, and hands the lease over.
+async fn shutdown(app: Arc<App>) {
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("SIGTERM handler");
+    tokio::select! {
+        _ = term.recv() => tracing::info!("SIGTERM received"),
+        _ = tokio::signal::ctrl_c() => tracing::info!("interrupt received"),
+    }
+    let _tick = app.tick_lock.lock().await;
+    if let Err(e) = app.lease.stop_and_release().await {
+        tracing::warn!(error = %format!("{e:#}"), "could not release the lease");
+    }
+    tracing::info!("lease released; shutting down");
+    // Open SSE streams would hold graceful shutdown open indefinitely.
+    tokio::spawn(async {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        std::process::exit(0);
+    });
 }

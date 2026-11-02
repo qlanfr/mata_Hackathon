@@ -237,6 +237,13 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
 검증 중 고친 것:
 - 첫 배포 시도에서 D1 요청이 인증 오류 10000으로 실패했다. `CLOUDFLARE_ACCOUNT_ID` secret 값이 토큰의 계정과 달랐다. 워크플로가 토큰이 접근할 수 있는 계정 목록과 secret을 대조해 계정을 고르도록 바꿨다.
 - run은 성공했지만 이벤트 수집에서 workers.dev가 Python urllib 요청을 403으로 막았다. 이벤트 수집도 curl로 바꿨다.
+- 두 번째 배포 직후의 run이 FAILED("no runner job is active in state BASELINING")로 끝났다.
+  - 원인: 롤아웃 중 옛 aiopsd 컨테이너가 SIGTERM을 받고도 계속 돌았다. PID 1이라 처리기가 없는 SIGTERM을 무시했다.
+  - 그 결과 옛 aiopsd와 새 aiopsd가 같은 run을 동시에 tick했다. 한쪽이 baseline job을 `done`으로 바꾼 지 11 ms 뒤, 다른 쪽이 활성 job이 없다고 보고 run을 실패시켰다.
+  - 수정 1: D1 `leases` 테이블(마이그레이션 0002). 리스를 가진 인스턴스 하나만 tick하고, heartbeat로 리스를 갱신한다(TTL 60초).
+  - 수정 2: aiopsd가 SIGTERM을 받으면 진행 중인 tick을 마치고 리스를 넘긴 뒤 종료한다.
+  - 로컬 재현: aiopsd 두 개를 같은 DB에 띄우고 baseline 중에 리스 보유자를 SIGTERM으로 내렸다. 2 ms 만에 리스를 반납했고, 다른 인스턴스가 2.5초 뒤 이어받아 COMPLETED/VERIFIED로 끝냈다. 중복 이벤트는 없었다.
+  - 같은 롤아웃에서 runner도 교체됐다. 진행 중이던 job은 "runner cancelled the job unexpectedly"로 유실 처리됐고, 새 runner에서 2차 시도로 이어졌다. 이 경로는 원래 설계대로 동작했다.
 
 확인하지 못한 것:
 - R2 경로: 아티팩트 두 개가 모두 64 KB 미만이라 D1에 inline으로 저장됐다.

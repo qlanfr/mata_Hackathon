@@ -20,6 +20,7 @@ use crate::agent::{self, AgentError, Limits, RunUsage};
 use crate::artifacts::Artifacts;
 use crate::db::{stmt, Db, Row, RowExt, Stmt};
 use crate::events;
+use crate::lease::Lease;
 use crate::llm::{Provider, Role};
 use crate::roles::{ExperimentPlan, Observation};
 use crate::runner_client::{JobState, RunnerClient, Submit};
@@ -38,6 +39,8 @@ pub struct App {
     pub scenario_hash: String,
     pub repo_root: PathBuf,
     pub tick_lock: tokio::sync::Mutex<()>,
+    /// Only the lease holder advances runs (see `lease.rs`).
+    pub lease: Lease,
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +203,11 @@ impl App {
         let Ok(_guard) = self.tick_lock.try_lock() else {
             return Ok(0);
         };
+        // Another aiopsd instance (for example, the old one during a deploy rollout) may be
+        // advancing the same runs. Only the lease holder ticks.
+        if !self.lease.renew().await? {
+            return Ok(0);
+        }
         let rows = self
             .db
             .query(
