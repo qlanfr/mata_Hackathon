@@ -2,3 +2,4 @@
 # One line per requested deploy.
 2026-11-02 first deploy to Cloudflare (replay provider)
 2026-11-02 retry after repository secrets were added
+2026-11-02 retry with the account resolved from the token

@@ -4,8 +4,8 @@ name: Deploy edge
 # builds both container images (Docker is available on GitHub runners), deploys the Worker, sets its secrets
 # and, unless turned off, drives one full run on the deployed URL with scripts/drive-run.sh.
 #
-# Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, ADMIN_TOKEN (16+ characters),
-# and optionally META_API_KEY.
+# Repository secrets: CLOUDFLARE_API_TOKEN and ADMIN_TOKEN (16+ characters). CLOUDFLARE_ACCOUNT_ID
+# is only needed when the token can access more than one account. META_API_KEY is optional.
 on:
   workflow_dispatch:
     inputs:
@@ -31,24 +31,62 @@ jobs:
       run:
         shell: bash
         working-directory: edge
+    # CLOUDFLARE_ACCOUNT_ID is not set here: the "Resolve the Cloudflare account" step checks the
+    # secret against the token and exports the account ID for the later steps.
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
       META_API_KEY: ${{ secrets.META_API_KEY }}
+      D1_DATABASE_ID: 40be013f-ab7b-40eb-889a-40454179225f
     steps:
       - uses: actions/checkout@v4
 
       - name: Check repository secrets
         run: |
           missing=0
-          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ADMIN_TOKEN; do
+          for name in CLOUDFLARE_API_TOKEN ADMIN_TOKEN; do
             if [ -z "${!name}" ]; then echo "::error::Repository secret $name is not set"; missing=1; fi
           done
           if [ -n "$ADMIN_TOKEN" ] && [ "${#ADMIN_TOKEN}" -lt 16 ]; then
             echo "::error::ADMIN_TOKEN must be at least 16 characters"; missing=1
           fi
           exit $missing
+
+      # Uses the CLOUDFLARE_ACCOUNT_ID secret when it is an account the token can access. If it is
+      # missing or wrong and the token belongs to exactly one account, uses that account. Then
+      # checks that the token can reach the D1 database, so a permission problem shows up here.
+      - name: Resolve the Cloudflare account
+        env:
+          ACCOUNT_ID_SECRET: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          api() { curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/$1"; }
+          accounts=$(api "accounts?per_page=50")
+          if [ "$(jq -r '.success' <<< "$accounts")" != true ]; then
+            echo "::error::The token cannot list its accounts: $(jq -c '.errors' <<< "$accounts")"
+            exit 1
+          fi
+          ids=$(jq -r '.result[].id' <<< "$accounts")
+          for id in $ids; do echo "::add-mask::$id"; done
+          count=$(grep -c . <<< "$ids" || true)
+          given=$(tr -d '[:space:]' <<< "$ACCOUNT_ID_SECRET")
+          if [ -n "$given" ] && grep -qx "$given" <<< "$ids"; then
+            account=$given
+          elif [ "$count" = 1 ]; then
+            account=$ids
+            if [ -n "$given" ]; then
+              echo "::warning::The CLOUDFLARE_ACCOUNT_ID secret is not an account this token can access. Using the token's own account instead."
+            fi
+          else
+            echo "::error::Cannot pick an account: the token can access $count accounts and CLOUDFLARE_ACCOUNT_ID does not match any of them."
+            exit 1
+          fi
+          echo "CLOUDFLARE_ACCOUNT_ID=$account" >> "$GITHUB_ENV"
+          d1=$(api "accounts/$account/d1/database/$D1_DATABASE_ID")
+          if [ "$(jq -r '.success' <<< "$d1")" != true ]; then
+            echo "::error::The token cannot read the D1 database aiops-control: $(jq -c '.errors' <<< "$d1"). Add Account · D1 · Edit to the token."
+            exit 1
+          fi
+          echo "account resolved; D1 database $(jq -r '.result.name' <<< "$d1") is reachable"
 
       - uses: actions/setup-node@v4
         with:
