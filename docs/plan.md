@@ -245,6 +245,7 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
   - 로컬 재현: aiopsd 두 개를 같은 DB에 띄우고 baseline 중에 리스 보유자를 SIGTERM으로 내렸다. 2 ms 만에 리스를 반납했고, 다른 인스턴스가 2.5초 뒤 이어받아 COMPLETED/VERIFIED로 끝냈다. 중복 이벤트는 없었다.
   - 리스를 배포하던 롤아웃에서도 옛 컨테이너(수정 전 코드)와 tick이 겹쳤다. 같은 job이 거의 동시에 두 번 제출됐고("runner busy"), PREPARING→BUILDING 이벤트가 두 번 기록됐다. run 자체는 COMPLETED/VERIFIED(89.8%)로 끝났다.
   - 이 겹침에서 드러난 것: CAS에서 진 배치도 뒤따르는 문장(job, 이벤트)을 써 버렸다. 수정 3: `cas_guard` 테이블(마이그레이션 0003). 전환 배치가 UPDATE 직후 `changes()`를 기록하고, 0이면 CHECK 위반으로 배치 전체가 롤백된다. 로컬 D1(workerd)에서 `changes()`와 오류 문구("CHECK constraint failed: cas_lost")를 확인했고, 단위 테스트를 추가했다.
+  - 두 수정을 배포한 뒤의 롤아웃([Deploy edge run 41473940043](https://github.com/qlanfr/mata_Hackathon/actions/runs/41473940043), 워크플로 전체 성공): 실행 중 aiopsd와 runner가 모두 교체됐다. 중복 제출이나 중복 이벤트 없이 COMPLETED/VERIFIED로 끝났다(A/A 1.3%, 쌍별 개선 89.1 / 88.7 / 88.6%, 상태 이벤트 9개로 첫 run과 같음).
   - 같은 롤아웃에서 runner도 교체됐다. 진행 중이던 job은 "runner cancelled the job unexpectedly"로 유실 처리됐고, 새 runner에서 2차 시도로 이어졌다. 이 경로는 원래 설계대로 동작했다.
 
 확인하지 못한 것:
