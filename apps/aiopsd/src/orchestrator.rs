@@ -284,45 +284,15 @@ impl App {
         extra: Vec<Stmt>,
         payload: Value,
     ) -> anyhow::Result<bool> {
-        let now = crate::now_ms();
-        let mut params = vec![json!(to), json!(now)];
-        let mut assignments =
-            String::from("state = ?1, state_version = state_version + 1, updated_at = ?2");
-        for (column, value) in sets {
-            params.push(value.clone());
-            assignments.push_str(&format!(", {column} = ?{}", params.len()));
+        let stmts = transition_stmts(run, to, sets, extra, payload, crate::now_ms());
+        match self.db.batch(stmts).await {
+            Ok(_) => Ok(true),
+            Err(err) if is_cas_lost(&err) => {
+                tracing::warn!(run = %run.id, from = %run.state, to, "state changed concurrently; transition skipped");
+                Ok(false)
+            }
+            Err(err) => Err(err),
         }
-        if TERMINAL.contains(&to) {
-            params.push(json!(now));
-            assignments.push_str(&format!(", finished_at = ?{}", params.len()));
-        }
-        params.push(json!(run.id));
-        let id_at = params.len();
-        params.push(json!(run.version));
-        let version_at = params.len();
-        let update = stmt(format!("UPDATE runs SET {assignments} WHERE id = ?{id_at} AND state_version = ?{version_at}"), params);
-
-        let mut body = payload;
-        if let Value::Object(map) = &mut body {
-            map.insert("from".into(), json!(run.state));
-            map.insert("to".into(), json!(to));
-        }
-        // Written only if this transition is the one that produced the new version.
-        let event = stmt(
-            "INSERT INTO run_events (run_id, seq, ts, kind, payload) \
-             SELECT ?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = ?1), ?2, 'state', ?3 \
-             WHERE (SELECT state_version FROM runs WHERE id = ?1) = ?4 AND (SELECT state FROM runs WHERE id = ?1) = ?5",
-            vec![json!(run.id), json!(now), json!(body.to_string()), json!(run.version + 1), json!(to)],
-        );
-        let mut stmts = vec![update];
-        stmts.extend(extra);
-        stmts.push(event);
-        let changes = self.db.batch(stmts).await?;
-        let won = changes.first().copied() == Some(1);
-        if !won {
-            tracing::warn!(run = %run.id, from = %run.state, to, "state changed concurrently; transition skipped");
-        }
-        Ok(won)
     }
 
     async fn fail(&self, run: &Run, reason: &str, usage: Option<&RunUsage>) -> anyhow::Result<()> {
@@ -1183,6 +1153,66 @@ fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The statements of one state transition, run as a single batch (one transaction):
+/// the compare-and-set UPDATE, the guard that aborts the batch when the UPDATE matched nothing
+/// (`migrations/0003_cas_guard.sql`), the caller's follow-up statements, and the state event.
+fn transition_stmts(
+    run: &Run,
+    to: &str,
+    sets: &[(&str, Value)],
+    extra: Vec<Stmt>,
+    payload: Value,
+    now: u64,
+) -> Vec<Stmt> {
+    let mut params = vec![json!(to), json!(now)];
+    let mut assignments =
+        String::from("state = ?1, state_version = state_version + 1, updated_at = ?2");
+    for (column, value) in sets {
+        params.push(value.clone());
+        assignments.push_str(&format!(", {column} = ?{}", params.len()));
+    }
+    if TERMINAL.contains(&to) {
+        params.push(json!(now));
+        assignments.push_str(&format!(", finished_at = ?{}", params.len()));
+    }
+    params.push(json!(run.id));
+    let id_at = params.len();
+    params.push(json!(run.version));
+    let version_at = params.len();
+    let update = stmt(
+        format!(
+            "UPDATE runs SET {assignments} WHERE id = ?{id_at} AND state_version = ?{version_at}"
+        ),
+        params,
+    );
+    // changes() is the row count of the UPDATE just above; 0 violates the cas_lost CHECK and
+    // rolls the whole batch back.
+    let guard = stmt(
+        "INSERT OR REPLACE INTO cas_guard (id, won) VALUES (1, changes())",
+        vec![],
+    );
+
+    let mut body = payload;
+    if let Value::Object(map) = &mut body {
+        map.insert("from".into(), json!(run.state));
+        map.insert("to".into(), json!(to));
+    }
+    let event = stmt(
+        "INSERT INTO run_events (run_id, seq, ts, kind, payload) \
+         SELECT ?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = ?1), ?2, 'state', ?3",
+        vec![json!(run.id), json!(now), json!(body.to_string())],
+    );
+    let mut stmts = vec![update, guard];
+    stmts.extend(extra);
+    stmts.push(event);
+    stmts
+}
+
+/// Whether a batch failed because its compare-and-set lost (see `transition_stmts`).
+fn is_cas_lost(err: &anyhow::Error) -> bool {
+    format!("{err:#}").contains("cas_lost")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1203,5 +1233,66 @@ mod tests {
             state_for_phase("trial", "measure 1/3"),
             Some("BENCHMARKING")
         );
+    }
+
+    async fn db_with_run() -> Db {
+        let migrations = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+        let db = Db::connect("sqlite::memory:", &migrations).await.unwrap();
+        db.execute(
+            "INSERT INTO runs (id, scenario_id, scenario_hash, goal, trigger, state, provider, budget, created_at, updated_at) \
+             VALUES ('r1', 's', 'h', 'g', '{}', 'PREPARING', 'replay', '{}', 0, 0)",
+            vec![],
+        )
+        .await
+        .unwrap();
+        db
+    }
+
+    fn run_at(version: i64) -> Run {
+        Run {
+            id: "r1".into(),
+            state: "PREPARING".into(),
+            version,
+            goal: "g".into(),
+            cancel_requested: false,
+            usage: RunUsage::default(),
+            budget: serde_json::from_value(json!({ "max_candidates": 1, "max_model_turns": 1, "max_tool_calls": 1, "max_run_minutes": 1, "build_timeout_s": 1 })).unwrap(),
+            aa_noise: None,
+            baseline_artifact_id: None,
+            observation: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_lost_transition_writes_nothing() {
+        let db = db_with_run().await;
+        let job = |id: &str| {
+            stmt(
+            "INSERT INTO jobs (id, run_id, kind, status, attempt, created_at, updated_at) VALUES (?1, 'r1', 'trial', 'pending', 1, 0, 0)",
+            vec![json!(id)],
+        )
+        };
+        // Two orchestrators read the run at version 0 and make the same transition.
+        let first = transition_stmts(&run_at(0), "BUILDING", &[], vec![job("j1")], json!({}), 1);
+        db.batch(first).await.unwrap();
+        let second = transition_stmts(&run_at(0), "BUILDING", &[], vec![job("j2")], json!({}), 2);
+        let err = db.batch(second).await.unwrap_err();
+        assert!(is_cas_lost(&err), "unexpected error: {err:#}");
+
+        let count = |sql: &'static str| {
+            let db = db.clone();
+            async move { db.query_one(sql, vec![]).await.unwrap().unwrap().i64("n") }
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) AS n FROM jobs").await,
+            1,
+            "the loser's job was rolled back"
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) AS n FROM run_events").await,
+            1,
+            "one state event"
+        );
+        assert_eq!(count("SELECT state_version AS n FROM runs").await, 1);
     }
 }
