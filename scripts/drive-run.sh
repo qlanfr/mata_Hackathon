@@ -55,13 +55,16 @@ while true; do
 done
 
 # Collect every event page.
+# Requests go through curl like the rest of this script: on workers.dev, Cloudflare answered
+# Python's default urllib client with 403.
 python3 - "$BASE_URL" "$run_id" "$OUT" <<'PY'
-import json, sys, urllib.request
+import json, subprocess, sys
 base, run_id, out = sys.argv[1:4]
 events, after = [], 0
 while True:
-    with urllib.request.urlopen(f"{base}/api/v1/runs/{run_id}/events?after_seq={after}", timeout=30) as r:
-        page = json.load(r)["events"]
+    url = f"{base}/api/v1/runs/{run_id}/events?after_seq={after}"
+    raw = subprocess.run(["curl", "-fsS", "-m", "30", url], check=True, capture_output=True, text=True).stdout
+    page = json.loads(raw)["events"]
     if not page:
         break
     events += page

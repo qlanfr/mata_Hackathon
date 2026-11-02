@@ -139,3 +139,5 @@ jobs:
           name: deploy-edge
           path: .work
           if-no-files-found: ignore
+          # .work starts with a dot, and upload-artifact skips hidden paths by default.
+          include-hidden-files: true

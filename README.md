@@ -4,7 +4,7 @@ Meta 모델이 운영 증거를 읽고 성능 개선 가설과 패치를 제안�
 
 - 첫 시나리오: Rust 주문 목록 API + PostgreSQL의 N+1 조회
 - 스택: Rust(Axum · Tokio) / React(Vite · TypeScript) / Cloudflare Workers + Containers + D1 + R2
-- 상태: 3일차. 화면(React)까지 로컬에서 동작을 확인했습니다(Replay provider). Cloudflare 실배포와 Meta API 실호출은 아직입니다.
+- 상태: Cloudflare에 배포됨 — https://aiops-edge.yh9365.workers.dev . 배포본에서 전체 run 1회가 VERIFIED로 끝났습니다(Replay provider). Meta API 실호출은 아직입니다.
 
 ## 지금 동작하는 것
 

@@ -7,7 +7,7 @@
 | D1 `aiops-control` | 생성 완료 (WNAM, id `40be013f-ab7b-40eb-889a-40454179225f`). 스키마는 배포할 때 마이그레이션으로 적용합니다. |
 | R2 `aiops-artifacts` | 생성 완료. 64 KB를 넘는 아티팩트만 여기에 저장합니다. |
 | 컨테이너 이미지 | GitHub Actions의 **Container E2E** 워크플로가 두 이미지를 빌드하고, Docker 안에서 전체 실행 1회를 돌려 검증합니다. Cloudflare 자격 증명은 필요 없습니다. |
-| Worker `aiops-edge` | 아직 배포하지 않았습니다. Claude가 작업하는 클라우드 환경은 네트워크 정책 때문에 `api.cloudflare.com`, `registry.cloudflare.com`, `*.workers.dev`에 접속할 수 없습니다. 그래서 배포는 GitHub Actions(아래 3절)나 사용자 PC(4절)에서 실행합니다. |
+| Worker `aiops-edge` | 배포 완료: https://aiops-edge.yh9365.workers.dev . 배포는 GitHub Actions에서 실행합니다(아래 3절). Claude가 작업하는 클라우드 환경은 네트워크 정책 때문에 `api.cloudflare.com`, `registry.cloudflare.com`, `*.workers.dev`에 접속할 수 없습니다. |
 | Meta API | 키가 없으면 Replay provider로 동작합니다. 실행 기록과 화면에 `replay`로 표시됩니다. |
 
 계정에 이미 있는 Worker와 D1(`bid-analytics-v3` 등)은 건드리지 않습니다.
@@ -32,11 +32,11 @@
    | 이름 | 값 |
    | --- | --- |
    | `CLOUDFLARE_API_TOKEN` | 1단계에서 만든 토큰 |
-   | `CLOUDFLARE_ACCOUNT_ID` | 대시보드 Workers & Pages 개요 화면 오른쪽에 있는 Account ID |
+   | `CLOUDFLARE_ACCOUNT_ID` | (선택) Account ID. 토큰이 한 계정에만 속하면 워크플로가 토큰에서 계정을 알아내므로 없어도 됩니다. 값이 틀리면 경고를 남기고 토큰의 계정을 씁니다. |
    | `ADMIN_TOKEN` | 16자 이상의 임의 문자열(예: `openssl rand -hex 24`). 화면에서 run을 시작할 때 이 값을 입력합니다. |
    | `META_API_KEY` | (선택) Meta API 키 |
 
-3. **실행.** Actions 탭 → **Deploy edge** → Run workflow를 누르거나, Claude에게 실행을 맡깁니다. 워크플로는 다음 순서로 진행합니다.
+3. **실행.** Actions 탭 → **Deploy edge** → Run workflow를 누릅니다. `.github/deploy-request` 파일에 한 줄을 추가해 브랜치에 푸시해도 실행됩니다(Claude는 이 방법을 씁니다: Claude의 GitHub 연동에는 워크플로 수동 실행 권한이 없습니다). 워크플로는 다음 순서로 진행합니다.
    1. secret 확인
    2. 토큰 확인(`wrangler whoami`)
    3. 타입 검사와 화면 빌드

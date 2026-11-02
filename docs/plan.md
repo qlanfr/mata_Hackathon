@@ -203,7 +203,7 @@ Cloudflare Container에서 잰 값이 아니며, 같은 숫자가 나온다고 �
 
 검증 중 고친 것: 폰에서 p95 차트 글자가 너무 작아지던 문제(컨테이너 실제 폭으로 다시 그림), 해시를 끝자리로 줄여 화면마다 다르게 보이던 문제(해시는 앞자리, ID는 뒷자리).
 
-### 배포 준비 — 컨테이너 이미지 검증 완료, Cloudflare 배포는 secret 등록 대기
+### 배포 준비 — 컨테이너 이미지 검증
 
 Claude의 개발 환경은 네트워크 정책 때문에 Cloudflare API·registry·`workers.dev`와 Debian 미러에 접속할 수 없다. 그래서 이미지 빌드와 배포는 GitHub Actions에서 한다.
 
@@ -218,6 +218,30 @@ GitHub Actions **Container E2E** ([run 41413453840](https://github.com/qlanfr/ma
 같은 날 로컬(4 vCPU 개발 컨테이너)에서 `scripts/drive-run.sh`로 돌린 run에서는 첫 측정이 baseline 편차 68%로 보류됐다. 이어서 재측정 1회에서 VERIFIED(92.3%)가 나왔다. 보류 후 재측정 경로가 실제로 동작함을 보여 준다.
 
 이 검증은 Worker relay(`d1.internal`, `r2.internal`, `runner.internal`), cron, Cloudflare 컨테이너 시작 지연을 다루지 않는다. Deploy edge 워크플로는 배포 직후 배포된 URL에서 같은 run을 1회 돌린다.
+
+### Cloudflare 배포 (11/2) — 배포본에서 전체 run VERIFIED
+
+- 배포: GitHub Actions Deploy edge [run 41466335890](https://github.com/qlanfr/mata_Hackathon/actions/runs/41466335890). 이미지 두 개 빌드·푸시와 Worker 배포에 4분 43초가 걸렸다.
+- URL: https://aiops-edge.yh9365.workers.dev
+- run `01a19cc5-b13c-7384-91e7-6a1ebcafeb02`(Replay provider): 생성부터 COMPLETED까지 6분 8초.
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| aiopsd 컨테이너 시작 | 배포 14초 뒤 `/api/v1/runs`가 응답. run 생성이 D1에 기록됨(`d1.internal` relay 동작) |
+| runner 컨테이너 첫 시작 | 첫 job 제출부터 접수까지 약 70초(503 → timeout → 접수). `runner.internal` relay 동작 |
+| 측정 환경 | 4 vCPU, PostgreSQL 15.19, k6 v0.57.0 |
+| A/A 노이즈 | 쌍별 p95 20.0/18.7, 18.6/17.6, 17.2/18.5 ms. 중앙값 6.4%(허용치 15%), 누락 0 |
+| 후보 증분 빌드 | 4.5초 (`--offline`, 인터넷 차단 컨테이너) |
+| 판정 | **VERIFIED**: golden 11/11. p95 17.0~17.8 ms → 1.87~2.01 ms, 쌍별 개선 88.7 / 89.2 / 89.0% |
+
+검증 중 고친 것:
+- 첫 배포 시도에서 D1 요청이 인증 오류 10000으로 실패했다. `CLOUDFLARE_ACCOUNT_ID` secret 값이 토큰의 계정과 달랐다. 워크플로가 토큰이 접근할 수 있는 계정 목록과 secret을 대조해 계정을 고르도록 바꿨다.
+- run은 성공했지만 이벤트 수집에서 workers.dev가 Python urllib 요청을 403으로 막았다. 이벤트 수집도 curl로 바꿨다.
+
+확인하지 못한 것:
+- R2 경로: 아티팩트 두 개가 모두 64 KB 미만이라 D1에 inline으로 저장됐다.
+- Worker cron tick: 이번 run은 aiopsd 내부 tick으로 진행됐고, cron이 tick을 보냈는지는 확인하지 않았다.
+- Meta API 실호출.
 
 ## 검증 방법
 
