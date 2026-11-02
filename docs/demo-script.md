@@ -39,6 +39,10 @@
 
 배포된 화면에는 이 장면이 없습니다. Replay는 항상 정답 패치를 냅니다. 셋 중 하나를 고릅니다.
 
+- **가장 권장:** 두 번째 Meta run(`/runs/01a19da7-b2a2-70e0-af44-018eddd0c003`)의 결과 화면을 씁니다.
+  - Experiment 1은 모델의 실제 실수로 POLICY_REJECTED됐습니다(search 문자열 불일치, 실행 전 차단).
+  - Experiment 2는 모델이 그 이유를 읽고 고쳐 VERIFIED를 받았습니다.
+  - 연출 없는 오답 장면입니다.
 - **권장:** GitHub Actions의 **Harness suite** 실행 요약 화면(함정 14개의 기대 판정 대 실제 판정 표)을 띄웁니다. 자막에 "직접 만든 함정 패치, runner 이미지 안에서 실행"이라고 답니다. 내레이션 예: "함정을 만들다 golden의 빈틈도 하나 찾았습니다. 항목 순서가 바뀐 오답이 통과하던 것을 케이스를 추가해 막았습니다."
 - `docs/plan.md` 1일차 표(REJECTED · POLICY_REJECTED · INCONCLUSIVE)를 화면에 띄우고 "로컬 측정"이라고 자막을 답니다.
 - Meta를 연결한 뒤 모델이 실제로 틀린 후보를 내면, 그 REJECTED 화면을 씁니다. 연출 없이 생긴 장면이므로 가장 좋습니다.
