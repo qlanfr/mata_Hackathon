@@ -6,12 +6,24 @@
 
 - [ ] 참가 등록과 팀 정보 확인
 - [ ] 제출 규정 확인: 기존 코드 사용 허용 여부, 필수 항목(저장소, 영상, 데모 URL, 설명문 길이 등)
-- [ ] Cloudflare 배포 (`docs/setup.md`)와 배포 URL에서 run 1회 완주
+- [x] Cloudflare 배포 (`docs/setup.md`)와 배포 URL에서 run 1회 완주
 - [ ] Meta API 키를 받으면 `META_API_KEY` secret과 `META_MODEL` 설정 후 Meta provider로 run 1회 (받지 못하면 Replay로 제출하고 그 사실을 명시)
 - [ ] 데모 영상 녹화 (`docs/demo-script.md`), 빨리 감기 구간과 run ID 표시
 - [ ] 제출 폼 작성과 업로드, 11:00 KST 전에 여유 있게
 
 ## 제출 설명에 쓸 수 있는 사실 (측정됨)
+
+### Cloudflare 배포본 (https://aiops-edge.yh9365.workers.dev, Replay provider)
+
+Cloudflare Containers, runner 4 vCPU, PostgreSQL 15.19, k6 v0.57.0, 100 rps, 20초 × 3쌍. 숫자는 run `01a19cf1-3ac6-7003-a2cb-1c4fa1c179d4` 기준입니다.
+
+- baseline: 요청당 SQL 평균 81.9개(최대 182), p95 약 17.6~17.9 ms.
+- 정상 후보(JOIN 1회): p95 약 2.0 ms, 쌍별 개선 89.1 / 88.7 / 88.6%, 요청당 SQL 3.0개, golden 11/11 → VERIFIED.
+- A/A 노이즈 1.3%, 후보 빌드 4.5초(인터넷 차단 컨테이너, 오프라인 빌드). run 생성부터 판정까지 약 6분.
+- 같은 날 다른 run 두 개도 VERIFIED였다(쌍별 개선 88.7~90.2%). baseline p95는 인스턴스에 따라 17~29 ms로 달랐다.
+- 배포 중 aiopsd와 runner 컨테이너가 모두 교체돼도 run이 이어서 완료됐다(작업 유실 → 재시도, 리스 인계).
+
+### 로컬 개발 컨테이너
 
 로컬 개발 컨테이너(4 vCPU, rustc 1.97, PostgreSQL 16, k6 v0.57.0), 100 rps, 20초 × 3쌍 기준입니다. Cloudflare에서 측정한 값이 아닙니다.
 
@@ -27,6 +39,6 @@
 ## 쓰면 안 되는 표현
 
 - "Meta 모델이 N+1을 찾아 고쳤다" → Replay로 찍었다면 사실이 아닙니다. Meta로 실제 run을 완주한 경우에만 씁니다.
-- "Cloudflare에서 p95 90% 개선" → 배포 환경에서 측정하기 전까지는 로컬 측정이라고 명시합니다.
+- "Cloudflare에서 p95 90% 개선" → Replay provider로 측정한 결과입니다. 모델 쪽은 녹화된 스크립트였다고 함께 밝힙니다.
 - "모든 부하에서 개선", "동치 증명" → golden 11개와 고정 부하에서의 결과일 뿐입니다.
 - "Rust라서 루프가 빠르다" → 전체 시간은 빌드·측정이 대부분이고, 이를 비교 측정하지 않았습니다.
