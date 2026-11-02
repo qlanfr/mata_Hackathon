@@ -2,8 +2,8 @@ name: Meta contract
 
 # Checks the live Meta Model API against the request and response shapes aiopsd's MetaProvider
 # uses (function tool round trip and a JSON-schema answer), with `aiopsd --contract-test`.
-# Runs on demand or when a push changes .github/meta-contract-request, whose last non-comment
-# line is the model ID to test. Repository secret: META_API_KEY.
+# Runs on demand or when a push changes .github/meta-contract-request; every non-comment line of
+# that file is a model ID to test. Repository secret: META_API_KEY.
 on:
   workflow_dispatch:
   push:
@@ -27,7 +27,16 @@ jobs:
         env:
           META_API_KEY: ${{ secrets.META_API_KEY }}
         run: |
-          model=$(grep -v '^\s*#' .github/meta-contract-request | grep -v '^\s*$' | tail -1 | tr -d '[:space:]')
-          echo "model: $model" | tee -a "$GITHUB_STEP_SUMMARY"
-          ./target/release/aiopsd --contract-test --meta-model "$model" 2>&1 | tee contract.log
-          tail -1 contract.log >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          for model in $(grep -v '^\s*#' .github/meta-contract-request | grep -v '^\s*$'); do
+            echo "::group::$model"
+            if ./target/release/aiopsd --contract-test --meta-model "$model" > "contract-$model.log" 2>&1; then
+              result=PASS
+            else
+              result=FAIL; failed=1
+            fi
+            cat "contract-$model.log"
+            echo "::endgroup::"
+            echo "$result $model: $(grep -m1 -E '^(Error:|contract test passed)' "contract-$model.log")" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          exit $failed
