@@ -53,8 +53,10 @@ jobs:
             edge/package-lock.json
             web/package-lock.json
       - run: npm ci
+      # Informational: account-owned tokens may not read user details. A token that cannot
+      # deploy fails at the migration step right after.
       - name: Check the API token
-        run: npx wrangler whoami
+        run: npx wrangler whoami || echo "::warning::wrangler whoami failed; continuing"
       - run: npx wrangler types && npx tsc --noEmit
       - run: npm run build:web
       - run: npx wrangler d1 migrations apply aiops-control --remote
