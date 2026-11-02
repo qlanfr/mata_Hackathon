@@ -4,9 +4,10 @@
 
 | 항목 | 상태 |
 | --- | --- |
-| D1 `aiops-control` | 생성 완료 (WNAM, id `40be013f-ab7b-40eb-889a-40454179225f`). 스키마는 배포 때 마이그레이션으로 적용합니다. |
-| R2 `aiops-artifacts` | 생성 완료. 64 KB를 넘는 아티팩트만 저장합니다. |
-| Worker `aiops-edge` | 화면·API·컨테이너 코드는 준비됐고, 배포는 사용자가 실행합니다(이 개발 환경에는 Docker 데몬이 없습니다). 배포 후 Worker URL을 브라우저로 열면 화면이 나옵니다. |
+| D1 `aiops-control` | 생성 완료 (WNAM, id `40be013f-ab7b-40eb-889a-40454179225f`). 스키마는 배포할 때 마이그레이션으로 적용합니다. |
+| R2 `aiops-artifacts` | 생성 완료. 64 KB를 넘는 아티팩트만 여기에 저장합니다. |
+| 컨테이너 이미지 | GitHub Actions의 **Container E2E** 워크플로가 두 이미지를 빌드하고, Docker 안에서 전체 실행 1회를 돌려 검증합니다. Cloudflare 자격 증명은 필요 없습니다. |
+| Worker `aiops-edge` | 아직 배포하지 않았습니다. Claude가 작업하는 클라우드 환경은 네트워크 정책 때문에 `api.cloudflare.com`, `registry.cloudflare.com`, `*.workers.dev`에 접속할 수 없습니다. 그래서 배포는 GitHub Actions(아래 3절)나 사용자 PC(4절)에서 실행합니다. |
 | Meta API | 키가 없으면 Replay provider로 동작합니다. 실행 기록과 화면에 `replay`로 표시됩니다. |
 
 계정에 이미 있는 Worker와 D1(`bid-analytics-v3` 등)은 건드리지 않습니다.
@@ -15,14 +16,42 @@
 
 | 할 일 | 메모 |
 | --- | --- |
-| `ADMIN_TOKEN` 만들기 | 16자 이상. 예: `openssl rand -hex 24`. 쓰기 API(`POST /api/*`)와 `/runner/*`를 보호합니다. |
-| 배포 (아래 A 또는 B) | Apple Silicon Mac은 amd64 에뮬레이션 빌드라 30분 이상 걸릴 수 있습니다. 이 경우 B가 빠릅니다. |
-| Meta API 키와 모델 ID | 키는 `META_API_KEY` secret, 모델 ID는 `edge/wrangler.jsonc`의 `META_MODEL`에 넣습니다. 둘 다 있어야 Meta provider를 씁니다. |
+| Cloudflare API 토큰 만들기 | 3절 1단계. 토큰 값은 GitHub secret에만 넣고, 채팅에는 붙여 넣지 마세요. |
+| GitHub 저장소 secret 3개 등록 | 3절 2단계: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_TOKEN` |
+| 등록했다고 Claude에게 알리기 | Claude가 **Deploy edge** 워크플로를 실행하고 로그를 보면서 실패를 고칩니다. |
+| Meta API 키와 모델 ID | 키는 `META_API_KEY` secret으로, 모델 ID는 `edge/wrangler.jsonc`의 `META_MODEL`에 넣습니다. 두 값이 모두 있어야 Meta provider를 씁니다. |
 | 해커톤 등록·규정 확인·데모 영상·최종 제출 | 기존 코드 사용 규정과 필수 제출 항목을 확인해 주세요. |
 
-## 3. 배포 방법 A: 내 PC에서
+## 3. 배포 방법 A (권장): GitHub Actions
 
-Docker가 실행 중이어야 합니다. 첫 배포는 두 이미지(Rust 빌드 포함)를 만드느라 오래 걸립니다.
+1. **API 토큰.** Cloudflare 대시보드에서 Manage account → Account API tokens → Create Token으로 갑니다. **Edit Cloudflare Workers** 템플릿을 고르고, 권한에 Account · **Containers** · Edit와 Account · **D1** · Edit를 추가한 뒤 이 계정으로 범위를 한정합니다.
+   - Cloudflare 문서상 바인딩(R2·D1)이 있는 Worker를 배포하는 데에는 바인딩 대상 리소스의 권한이 따로 필요하지 않습니다. 다만 D1 권한은 `wrangler d1 migrations apply --remote` 때문에 필요합니다.
+   - 권한 이름은 화면에 따라 Edit 또는 Write로 표시됩니다. 권한이 부족하면 워크플로의 `Check the API token` 단계나 배포 단계에서 실패하므로, 오류에 나온 권한을 추가하면 됩니다.
+2. **Secret 등록.** GitHub의 `qlanfr/mata_Hackathon` → Settings → Secrets and variables → Actions → New repository secret에서 다음을 등록합니다.
+
+   | 이름 | 값 |
+   | --- | --- |
+   | `CLOUDFLARE_API_TOKEN` | 1단계에서 만든 토큰 |
+   | `CLOUDFLARE_ACCOUNT_ID` | 대시보드 Workers & Pages 개요 화면 오른쪽에 있는 Account ID |
+   | `ADMIN_TOKEN` | 16자 이상의 임의 문자열(예: `openssl rand -hex 24`). 화면에서 run을 시작할 때 이 값을 입력합니다. |
+   | `META_API_KEY` | (선택) Meta API 키 |
+
+3. **실행.** Actions 탭 → **Deploy edge** → Run workflow를 누르거나, Claude에게 실행을 맡깁니다. 워크플로는 다음 순서로 진행합니다.
+   1. secret 확인
+   2. 토큰 확인(`wrangler whoami`)
+   3. 타입 검사와 화면 빌드
+   4. D1 마이그레이션
+   5. 배포(이미지 두 개 빌드·푸시)
+   6. Worker secret 설정
+   7. 배포된 URL에서 전체 run 1회 실행
+
+   Worker URL은 실행 요약(Summary)에 나옵니다. run 결과와 이벤트는 `deploy-edge` 아티팩트에 들어 있습니다.
+
+첫 배포 직후에는 컨테이너를 준비하느라 몇 분 동안 `/api/*`가 오류를 낼 수 있습니다(Cloudflare 문서에 안내된 동작). 그래서 7단계는 API가 응답할 때까지 최대 15분 기다린 뒤 run을 시작합니다.
+
+## 4. 배포 방법 B: 내 PC에서
+
+Docker가 실행 중이어야 합니다. 첫 배포는 두 이미지(Rust 빌드 포함)를 만드느라 오래 걸립니다. Apple Silicon Mac에서는 amd64 에뮬레이션으로 빌드하므로 30분 넘게 걸릴 수 있습니다.
 
 ```bash
 git clone https://github.com/qlanfr/mata_Hackathon.git && cd mata_Hackathon && git checkout claude/busy-cannon-5b5n40
@@ -36,14 +65,14 @@ cd edge && npm ci && npx wrangler login
 npx wrangler d1 migrations apply aiops-control --remote
 ```
 
-```bash
-npx wrangler secret put ADMIN_TOKEN
-```
-
 `npm run deploy`는 React 화면(`web`)을 빌드한 뒤 `wrangler deploy`를 실행합니다.
 
 ```bash
 npm run deploy
+```
+
+```bash
+npx wrangler secret put ADMIN_TOKEN
 ```
 
 Meta 키를 받으면:
@@ -52,39 +81,33 @@ Meta 키를 받으면:
 npx wrangler secret put META_API_KEY
 ```
 
-## 4. 배포 방법 B: GitHub Actions
+배포 전에 이미지만 내 PC에서 확인하려면(배포 없이 Docker로 전체 run 1회):
 
-1. Cloudflare 대시보드의 Account API tokens에서 **Edit Cloudflare Workers** 템플릿으로 토큰을 만들고, D1 Edit과 Workers R2 Storage Edit 권한을 추가합니다. Containers 항목이 따로 보이면 Edit으로 추가합니다. 컨테이너 배포에 필요한 정확한 권한 이름은 확인하지 못했으므로, 권한 오류가 나면 오류 메시지에 나온 권한을 추가합니다.
-2. GitHub 저장소 Settings → Secrets and variables → Actions에 `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `ADMIN_TOKEN`(필수)과 `META_API_KEY`(선택)를 등록합니다.
-3. Actions 탭에서 **Deploy edge**를 수동 실행합니다. 마이그레이션 → 배포 → secret 설정 순서로 진행합니다.
+```bash
+scripts/container-e2e.sh
+```
 
 ## 5. 배포 후 확인
 
-runner만 먼저 확인 (A/A 노이즈, 후보 빌드 시간, 누락 여부):
+전체 루프(baseline → 관측 AI → 실험 AI → 검증 → 판정)를 1회 실행하고 결과를 출력합니다. Deploy edge 워크플로의 마지막 단계도 이 스크립트를 씁니다.
+
+```bash
+BASE_URL=https://aiops-edge.<서브도메인>.workers.dev ADMIN_TOKEN=<토큰> scripts/drive-run.sh
+```
+
+runner만 따로 확인하려면(A/A 노이즈, 후보 빌드 시간, 누락 여부):
 
 ```bash
 EDGE_URL=https://aiops-edge.<서브도메인>.workers.dev ADMIN_TOKEN=<토큰> scripts/cf-runner-smoke.sh
 ```
 
-전체 루프 실행 (baseline → 관측 AI → 실험 AI → 검증 → 판정):
-
-```bash
-curl -s -X POST "$EDGE_URL/api/v1/runs" -H "authorization: Bearer $ADMIN_TOKEN" -H 'content-type: application/json' -d '{}'
-```
-
 진행 상황(SSE):
 
 ```bash
-curl -N "$EDGE_URL/api/v1/runs/<run_id>/events" -H 'accept: text/event-stream'
+curl -N "$BASE_URL/api/v1/runs/<run_id>/events" -H 'accept: text/event-stream'
 ```
 
-결과:
-
-```bash
-curl -s "$EDGE_URL/api/v1/runs/<run_id>"
-```
-
-출력과 `.work/cf/*.json`을 Claude에게 전달하면 측정 계약을 조정합니다.
+출력과 `.work/` 아래 JSON을 Claude에게 전달하면 측정 계약을 조정합니다.
 
 ## 6. 로컬 개발 (Docker 없이)
 

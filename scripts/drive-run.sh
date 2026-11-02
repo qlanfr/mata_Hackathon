@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Starts one run on an aiopsd API, waits for it to finish and prints its events and verdicts.
+# Works against local aiopsd, the Docker setup (scripts/container-e2e.sh) or the deployed Worker:
+#
+#   BASE_URL=https://aiops-edge.<subdomain>.workers.dev ADMIN_TOKEN=... scripts/drive-run.sh
+#
+# Exits non-zero unless the run reaches COMPLETED with a VERIFIED trial. Polling also keeps the
+# Cloudflare containers awake while the run is in progress.
+set -euo pipefail
+
+: "${BASE_URL:?set BASE_URL, e.g. http://127.0.0.1:18090}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="${OUT:-$ROOT/.work/drive-run}"
+TIMEOUT_S="${TIMEOUT_S:-1800}"
+STARTUP_S="${STARTUP_S:-600}"
+POLL_S="${POLL_S:-15}"
+BASE_URL="${BASE_URL%/}"
+mkdir -p "$OUT"
+
+auth=()
+if [ -n "${ADMIN_TOKEN:-}" ]; then auth=(-H "authorization: Bearer $ADMIN_TOKEN"); fi
+get() { curl -fsS -m 30 "$@"; }
+
+# On Cloudflare the first request starts the aiopsd container, which can take minutes on a fresh
+# deploy. Wait until the API answers before starting the run, so the POST is sent exactly once.
+started=$(date +%s)
+until get "$BASE_URL/api/v1/runs" > "$OUT/runs-before.json" 2> "$OUT/startup.err"; do
+  if [ $(( $(date +%s) - started )) -gt "$STARTUP_S" ]; then
+    echo "FAIL: $BASE_URL/api/v1/runs did not answer within ${STARTUP_S}s: $(cat "$OUT/startup.err")" >&2
+    exit 1
+  fi
+  sleep 10
+done
+echo "API ready after $(( $(date +%s) - started ))s"
+
+run_id=$(curl -fsS -m 60 -X POST "$BASE_URL/api/v1/runs" ${auth[@]+"${auth[@]}"} \
+  -H 'content-type: application/json' -d '{}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')
+echo "run $run_id  ($BASE_URL/runs/$run_id)"
+
+started=$(date +%s)
+last=""
+while true; do
+  elapsed=$(( $(date +%s) - started ))
+  if get "$BASE_URL/api/v1/runs/$run_id" > "$OUT/run.json.tmp" 2> "$OUT/poll.err"; then
+    mv "$OUT/run.json.tmp" "$OUT/run.json"
+    state=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["run"]["state"])' "$OUT/run.json")
+    if [ "$state" != "$last" ]; then echo "[${elapsed}s] $state"; last=$state; fi
+    case "$state" in COMPLETED|EXHAUSTED|FAILED|CANCELLED) break ;; esac
+  else
+    echo "[${elapsed}s] poll failed: $(cat "$OUT/poll.err")"
+  fi
+  if [ "$elapsed" -gt "$TIMEOUT_S" ]; then echo "FAIL: timed out in state $last" >&2; exit 1; fi
+  sleep "$POLL_S"
+done
+
+# Collect every event page.
+python3 - "$BASE_URL" "$run_id" "$OUT" <<'PY'
+import json, sys, urllib.request
+base, run_id, out = sys.argv[1:4]
+events, after = [], 0
+while True:
+    with urllib.request.urlopen(f"{base}/api/v1/runs/{run_id}/events?after_seq={after}", timeout=30) as r:
+        page = json.load(r)["events"]
+    if not page:
+        break
+    events += page
+    after = page[-1]["seq"]
+json.dump(events, open(f"{out}/events.json", "w"), ensure_ascii=False, indent=1)
+PY
+
+python3 - "$OUT" <<'PY'
+import json, sys
+out = sys.argv[1]
+detail = json.load(open(f"{out}/run.json"))
+events = json.load(open(f"{out}/events.json"))
+run = detail["run"]
+print("\n== events")
+for e in events:
+    payload = json.dumps(e["payload"], ensure_ascii=False)
+    print(f"{e['seq']:>3} {e['kind']:<22} {payload[:160]}")
+print("\n== run")
+print("state:", run["state"], "| provider:", run["provider"], "| aa_noise:", run["aa_noise"])
+print("summary:", run["summary"], "| error:", run["error"])
+for t in detail["trials"]:
+    ev = t["evaluation"] or {}
+    imp = [f"{x:.1%}" for x in ev.get("improvements") or []]
+    print(f"trial {t['seq']}: {t['status']} {t['outcome']} improvements={imp} reasons={ev.get('reasons')}")
+ok = run["state"] == "COMPLETED" and any(t["outcome"] == "VERIFIED" for t in detail["trials"])
+print("\nRESULT:", "PASS" if ok else "FAIL")
+sys.exit(0 if ok else 1)
+PY
