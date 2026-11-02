@@ -6,7 +6,8 @@
     "types": "wrangler types",
     "check": "wrangler types && tsc --noEmit",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "npm run build:web && wrangler deploy",
+    "build:web": "npm --prefix ../web ci && npm --prefix ../web run build"
   },
   "dependencies": {
     "@cloudflare/containers": "0.3.7"

@@ -6,7 +6,7 @@
 | --- | --- |
 | D1 `aiops-control` | 생성 완료 (WNAM, id `40be013f-ab7b-40eb-889a-40454179225f`). 스키마는 배포 때 마이그레이션으로 적용합니다. |
 | R2 `aiops-artifacts` | 생성 완료. 64 KB를 넘는 아티팩트만 저장합니다. |
-| Worker `aiops-edge` | 코드는 준비됐고, 배포는 사용자가 실행합니다(이 개발 환경에는 Docker 데몬이 없습니다). |
+| Worker `aiops-edge` | 화면·API·컨테이너 코드는 준비됐고, 배포는 사용자가 실행합니다(이 개발 환경에는 Docker 데몬이 없습니다). 배포 후 Worker URL을 브라우저로 열면 화면이 나옵니다. |
 | Meta API | 키가 없으면 Replay provider로 동작합니다. 실행 기록과 화면에 `replay`로 표시됩니다. |
 
 계정에 이미 있는 Worker와 D1(`bid-analytics-v3` 등)은 건드리지 않습니다.
@@ -40,8 +40,10 @@ npx wrangler d1 migrations apply aiops-control --remote
 npx wrangler secret put ADMIN_TOKEN
 ```
 
+`npm run deploy`는 React 화면(`web`)을 빌드한 뒤 `wrangler deploy`를 실행합니다.
+
 ```bash
-npx wrangler deploy
+npm run deploy
 ```
 
 Meta 키를 받으면:

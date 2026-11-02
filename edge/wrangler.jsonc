@@ -4,6 +4,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-13",
   "observability": { "enabled": true },
+  // The React app. API, runner and health paths go to the Worker first; every other path is a
+  // static file, with index.html for client-side routes.
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/runner/*", "/healthz"]
+  },
   // Every minute: if any run is unfinished, wake aiopsd so it keeps advancing after the browser
   // closes or the container restarts. Idle accounts cost nothing.
   "triggers": { "crons": ["* * * * *"] },

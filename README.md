@@ -4,7 +4,7 @@ Meta 모델이 운영 증거를 읽고 성능 개선 가설과 패치를 제안�
 
 - 첫 시나리오: Rust 주문 목록 API + PostgreSQL의 N+1 조회
 - 스택: Rust(Axum · Tokio) / React(Vite · TypeScript) / Cloudflare Workers + Containers + D1 + R2
-- 상태: 2일차. 오케스트레이터(`aiopsd`)까지 로컬에서 한 번에 완주하는 것을 확인했습니다(Replay provider). 화면(React)과 Cloudflare 실배포, Meta API 실호출은 아직입니다.
+- 상태: 3일차. 화면(React)까지 로컬에서 동작을 확인했습니다(Replay provider). Cloudflare 실배포와 Meta API 실호출은 아직입니다.
 
 ## 지금 동작하는 것
 
@@ -16,7 +16,12 @@ Meta 모델이 운영 증거를 읽고 성능 개선 가설과 패치를 제안�
 | 시나리오 | `scenarios/n-plus-one` | seed, golden 케이스 11개, 부하 스크립트, 하네스 검증용 후보 3개 |
 | `aiopsd` | `apps/aiopsd` | 상태 머신, 제어 DB(D1/SQLite), 관측·실험 역할 하네스, Meta/Replay provider, API·SSE |
 | 제어 DB 스키마 | `migrations` | D1과 로컬 SQLite가 같은 파일을 사용 |
-| Edge Worker | `edge` | aiopsd·runner 컨테이너, D1·R2·runner relay, cron, 쓰기 API 인증 |
+| Edge Worker | `edge` | React 정적 자산, aiopsd·runner 컨테이너, D1·R2·runner relay, cron, 쓰기 API 인증 |
+| 화면 | `web` | 실행 목록, 실시간 타임라인(SSE), 결과(판정 게이트·쌍별 p95 차트·diff·재현 정보) |
+
+![Run timeline](docs/img/ui-run.png)
+
+![Trial result](docs/img/ui-trial.png)
 
 로컬 측정 결과(4 vCPU 개발 컨테이너, 100 rps)는 [docs/plan.md의 진행 상황](docs/plan.md#진행-상황)에 있습니다.
 정상 후보는 VERIFIED(p95 약 48 ms → 약 4.5 ms), 항목을 빠뜨린 후보는 REJECTED, 보호 파일을 고친 후보는 POLICY_REJECTED, 과부하 측정은 INCONCLUSIVE로 판정됐습니다.
@@ -43,6 +48,8 @@ cargo build --release -p aiops-runner -p aiopsd
 curl -s -X POST 127.0.0.1:18090/api/v1/runs -H 'content-type: application/json' -d '{}'
 ```
 
+화면은 `web`에서 `npm ci && npm run dev`로 띄우면 `/api`가 로컬 aiopsd(127.0.0.1:18090)로 연결됩니다.
+
 PostgreSQL 서버 바이너리와 k6가 필요합니다. 배포와 준비 작업은 [docs/setup.md](docs/setup.md)를 보세요.
 
 ## 문서
@@ -50,3 +57,5 @@ PostgreSQL 서버 바이너리와 k6가 필요합니다. 배포와 준비 작업
 - [docs/plan.md](docs/plan.md): 구현 계획, 일정, 리스크, 진행 상황
 - [docs/architecture.md](docs/architecture.md): 배포 구성, 상태 전이, trial 시퀀스, 판정 게이트(mermaid)
 - [docs/setup.md](docs/setup.md): 사용자가 할 일, Cloudflare 배포 방법, 실측 스크립트
+- [docs/demo-script.md](docs/demo-script.md): 3분 데모 장면과 내레이션
+- [docs/submission.md](docs/submission.md): 제출 체크리스트, 써도 되는 사실과 쓰면 안 되는 표현

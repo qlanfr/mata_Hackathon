@@ -187,7 +187,13 @@ async fn get_run(State(app): State<Shared>, Path(id): Path<String>) -> Response 
         .query("SELECT id, kind, status, attempt, runner_job_id, runner_boot_id, runner_phase, error, created_at, updated_at FROM jobs WHERE run_id = ?1 ORDER BY created_at", vec![json!(id)])
         .await;
     match (trials, jobs) {
-        (Ok(trials), Ok(jobs)) => Json(json!({ "run": run_view(&run), "trials": trials.iter().map(trial_view).collect::<Vec<_>>(), "jobs": jobs })).into_response(),
+        (Ok(trials), Ok(jobs)) => Json(json!({
+            "run": run_view(&run),
+            "trials": trials.iter().map(trial_view).collect::<Vec<_>>(),
+            "jobs": jobs,
+            "contract": app.spec.contract,
+        }))
+        .into_response(),
         (Err(e), _) | (_, Err(e)) => internal(e),
     }
 }
@@ -312,8 +318,13 @@ async fn get_trial(State(app): State<Shared>, Path(id): Path<String>) -> Respons
         },
         None => None,
     };
-    Json(json!({ "trial": trial_view(&trial), "patch": trial.json("patch"), "report": report }))
-        .into_response()
+    Json(json!({
+        "trial": trial_view(&trial),
+        "patch": trial.json("patch"),
+        "report": report,
+        "contract": app.spec.contract,
+    }))
+    .into_response()
 }
 
 async fn get_artifact(State(app): State<Shared>, Path(id): Path<String>) -> Response {

@@ -22,9 +22,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: edge/package-lock.json
+          cache-dependency-path: |
+            edge/package-lock.json
+            web/package-lock.json
       - run: npm ci
       - run: npx wrangler types && npx tsc --noEmit
+      - run: npm run build:web
       - run: npx wrangler d1 migrations apply aiops-control --remote
       - run: npx wrangler deploy
       - name: Set secrets
