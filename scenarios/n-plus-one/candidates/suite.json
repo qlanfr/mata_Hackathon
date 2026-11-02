@@ -83,7 +83,7 @@
   {
     "file": "trap-slower.json",
     "expect": "REJECTED",
-    "reason": "candidate is slower",
+    "reason": "candidate is slower|could not keep up",
     "tolerate": [
       "INCONCLUSIVE"
     ],

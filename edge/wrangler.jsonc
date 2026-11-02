@@ -16,9 +16,11 @@
   "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "META_BASE_URL": "https://api.meta.ai/v1",
-    // Set the model ID here (or as a secret) together with the META_API_KEY secret.
-    // Until both are set, aiopsd uses the replay provider and labels runs `replay`.
-    "META_MODEL": ""
+    // Model for the observer and experimenter roles; needs the META_API_KEY secret too. Without
+    // both, aiopsd uses the replay provider and labels runs `replay`. IDs available to the key
+    // are listed by the Meta contract workflow (GET /v1/models); muse-spark-1.3 passed its
+    // contract test (tool round trip and JSON-schema answer).
+    "META_MODEL": "muse-spark-1.3"
   },
   "d1_databases": [
     {

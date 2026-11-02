@@ -281,6 +281,20 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
         }
     }
     for pair in &report.pairs {
+        // A candidate that falls behind the arrival rate while the baseline keeps up, and is
+        // slower in the same pair, cannot sustain the load: that is a result, not noise.
+        let (b, c) = (&pair.baseline, &pair.candidate);
+        let baseline_clean = b.dropped == 0 && b.drained();
+        if baseline_clean && (c.dropped > 0 || !c.drained()) && c.p95_ms > b.p95_ms {
+            return decide(
+                eval,
+                Outcome::Rejected,
+                format!(
+                    "pair {}: the candidate could not keep up with the arrival rate (dropped {}, finished {} of {}) and was slower (p95 {:.1} ms vs {:.1} ms)",
+                    pair.index, c.dropped, c.iterations, c.offered, c.p95_ms, b.p95_ms
+                ),
+            );
+        }
         for run in [&pair.baseline, &pair.candidate] {
             if run.dropped > 0 {
                 return decide(
@@ -599,6 +613,27 @@ mod tests {
             e.improvements.len(),
             3,
             "the measured change is reported even when inconclusive"
+        );
+    }
+
+    #[test]
+    fn a_slower_candidate_that_falls_behind_is_rejected() {
+        let mut r = report(vec![
+            pair(0, 10.0, 30.0),
+            pair(1, 10.0, 30.0),
+            pair(2, 10.0, 30.0),
+        ]);
+        r.pairs[2].candidate.dropped = 7;
+        r.pairs[2].candidate.iterations -= 7;
+        let e = evaluate(&contract(), &r, None);
+        assert_eq!(e.outcome, Outcome::Rejected, "{:?}", e.reasons);
+        assert!(e.reasons[0].contains("could not keep up"));
+        // The same drop while the baseline also drops says the environment is overloaded.
+        r.pairs[2].baseline.dropped = 3;
+        r.pairs[2].baseline.iterations -= 3;
+        assert_eq!(
+            evaluate(&contract(), &r, None).outcome,
+            Outcome::Inconclusive
         );
     }
 

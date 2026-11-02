@@ -9,3 +9,4 @@
 2026-11-02 deploy the 12th golden case (items-not-in-product-order)
 2026-11-02 deploy the scenario hash check
 2026-11-02 deploy the runner stale-build fix
+2026-11-02 deploy with the Meta provider (muse-spark-1.3)
