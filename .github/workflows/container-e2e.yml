@@ -1,0 +1,39 @@
+name: Container E2E
+
+# Builds the two container images exactly as `wrangler deploy` would and drives one full replay run
+# through them (scripts/container-e2e.sh). Needs no Cloudflare credentials, so it can catch image
+# problems before the first deploy.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - deploy/**
+      - apps/**
+      - crates/**
+      - fixtures/**
+      - scenarios/**
+      - prompts/**
+      - migrations/**
+      - Cargo.toml
+      - Cargo.lock
+      - scripts/container-e2e.sh
+      - .github/workflows/container-e2e.yml
+
+concurrency:
+  group: container-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: nproc && free -g && docker version --format '{{.Server.Version}}'
+      - run: scripts/container-e2e.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-e2e
+          path: .work/container-e2e
+          if-no-files-found: ignore
