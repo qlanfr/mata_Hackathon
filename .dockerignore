@@ -1,0 +1,7 @@
+.git
+target
+.work
+**/node_modules
+edge/.wrangler
+web
+docs

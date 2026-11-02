@@ -1,0 +1,45 @@
+# Experiment runner image. Candidates are compiled inside it, so it carries the Rust toolchain,
+# PostgreSQL for the experiment target, and k6 for load. The build context is the repository root
+# (see edge/wrangler.jsonc). The container runs with internet access disabled, so everything a
+# candidate build needs is fetched and compiled here, at image build time.
+FROM rust:1.97-slim-bookworm
+
+ARG K6_VERSION=v0.57.0
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql postgresql-client ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+    | tar -xz -C /tmp \
+ && mv "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /usr/local/bin/k6 \
+ && rm -rf /tmp/k6-*
+
+WORKDIR /opt/aiops
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY apps apps
+COPY fixtures fixtures
+COPY scenarios scenarios
+
+RUN cargo build --release --locked -p aiops-runner \
+ && cp target/release/aiops-runner /usr/local/bin/aiops-runner \
+ && rm -rf target
+
+# Warm the shared target directory with the fixture's dependencies: candidate builds then run
+# offline and only recompile the service crate itself.
+RUN useradd --create-home --uid 10001 aiops \
+ && mkdir -p /var/aiops/work \
+ && CARGO_TARGET_DIR=/var/aiops/target cargo build --release --locked --manifest-path fixtures/orders-api/Cargo.toml \
+ && chown -R aiops:aiops /var/aiops /usr/local/cargo
+
+# Scenario files, golden cases and the evaluator stay root-owned under /opt/aiops (read-only to
+# the runner user). Candidate workspaces live under /var/aiops/work.
+USER aiops
+ENV AIOPS_REPO_ROOT=/opt/aiops \
+    AIOPS_WORK_DIR=/var/aiops/work \
+    AIOPS_TARGET_DIR=/var/aiops/target \
+    AIOPS_PG_BIN=/usr/lib/postgresql/15/bin \
+    AIOPS_K6=/usr/local/bin/k6 \
+    AIOPS_OFFLINE=true \
+    RUST_LOG=info
+EXPOSE 8080
+CMD ["aiops-runner", "serve", "--listen", "0.0.0.0:8080"]

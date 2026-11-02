@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aiops-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-13",
+  "observability": { "enabled": true },
+  // Day 1: the runner only, behind an admin-token route, to measure build time and noise on
+  // Cloudflare. Day 2 adds the aiopsd container, D1, R2, the cron tick and the React assets.
+  "containers": [
+    {
+      "class_name": "RunnerContainer",
+      "image": "../deploy/Dockerfile.runner",
+      "image_build_context": "..",
+      "instance_type": "standard-4",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "RUNNER", "class_name": "RunnerContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunnerContainer"] }]
+}

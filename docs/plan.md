@@ -117,12 +117,12 @@ docs/                      # architecture.md(mermaid), decisions.md, demo-script
 
 | 날짜 | 할 일 | 완료 기준 |
 | --- | --- | --- |
-| **D1 · 11/2** | workspace 골격; fixture API(N+1) + seed + 골든 케이스 + k6; aiops-runner 로컬 실행(내장 PG, build, check, bench, cleanup); Evaluator; 수동 후보 2개(정상 JOIN 버전, 필드 누락 버전). **CF 탐색**: D1·R2 생성, runner 이미지를 Container에 올려 cargo 증분 빌드 시간과 A/A 변동을 실측, 컨테이너→`d1.internal` 왕복 지연 측정 | 로컬에서 정상 후보 → VERIFIED, 누락 후보 → REJECTED. CF에서 runner 1회 왕복 |
-| **D2 · 11/3** | migrations(SQLite) + ControlDb(D1/SQLite) + 상태머신/tick/jobs/lease; runner client(outbound 경유); run_events + SSE; LlmProvider(Replay 먼저, 키가 오면 Meta); 관측·실험 두 역할 + 도구(read_request_evidence, read_source, search_experiments, submit_patch, read_trial_result); 예산·취소; edge Worker(D1·R2 중계) + cron 배포 | CF 배포본에서 `POST /runs` → replay(또는 Meta) 제안 → runner 검증 → 판정까지 완주 |
-| **D3 · 11/4** | React 3화면(실행 목록 / 상세 타임라인 / 결과 비교·diff); 복구·취소·중복 알림 검증; experiment_cases 기록; README·재현 가이드·데모 녹화 | 다른 사람이 README대로 재현 가능, 데모 영상 완성 |
+| **1일차 · 11/2** | workspace 골격; fixture API(N+1) + seed + 골든 케이스 + k6; aiops-runner 로컬 실행(내장 PG, build, check, bench, cleanup); Evaluator; 수동 후보 2개(정상 JOIN 버전, 필드 누락 버전). **CF 탐색**: D1·R2 생성, runner 이미지를 Container에 올려 cargo 증분 빌드 시간과 A/A 변동을 실측, 컨테이너→`d1.internal` 왕복 지연 측정 | 로컬에서 정상 후보 → VERIFIED, 누락 후보 → REJECTED. CF에서 runner 1회 왕복 |
+| **2일차 · 11/3** | migrations(SQLite) + ControlDb(D1/SQLite) + 상태머신/tick/jobs/lease; runner client(outbound 경유); run_events + SSE; LlmProvider(Replay 먼저, 키가 오면 Meta); 관측·실험 두 역할 + 도구(read_request_evidence, read_source, search_experiments, submit_patch, read_trial_result); 예산·취소; edge Worker(D1·R2 중계) + cron 배포 | CF 배포본에서 `POST /runs` → replay(또는 Meta) 제안 → runner 검증 → 판정까지 완주 |
+| **3일차 · 11/4** | React 3화면(실행 목록 / 상세 타임라인 / 결과 비교·diff); 복구·취소·중복 알림 검증; experiment_cases 기록; README·재현 가이드·데모 녹화 | 다른 사람이 README대로 재현 가능, 데모 영상 완성 |
 | 11/5 오전 | 버퍼 + 제출 | 11:00 전 제출 |
 
-D2가 끝날 때 완주하지 못하면 다음 순서로 범위를 줄인다: `POST /alerts` → experiment_cases 검색 → UI 장식 → 독립 확인 조건.
+2일차가 끝날 때 완주하지 못하면 다음 순서로 범위를 줄인다: `POST /alerts` → experiment_cases 검색 → UI 장식 → 독립 확인 조건.
 
 ## 1인 개발을 위한 범위 축소 (기획안 P0 대비)
 
@@ -134,7 +134,7 @@ D2가 끝날 때 완주하지 못하면 다음 순서로 범위를 줄인다: `P
 
 | 리스크 | 대응 |
 | --- | --- |
-| CF Container 측정 잡음이 커서 20% 판정이 흔들림 | N+1 → JOIN은 보통 수 배 차이가 나서 여유가 크다(추정이며 D1에 실측). A/A 게이트로 INCONCLUSIVE 처리. 그래도 불안정하면 부하·데이터 크기를 키운다 |
+| CF Container 측정 잡음이 커서 20% 판정이 흔들림 | N+1 → JOIN은 보통 수 배 차이가 나서 여유가 크다(1일차 로컬 실측: 약 10배 차이, 아래 진행 상황 참고). A/A 게이트로 INCONCLUSIVE 처리. 그래도 불안정하면 부하·데이터 크기를 키운다 |
 | standard-4에서 cargo 증분 빌드가 너무 느림 | 이미지에 baseline release 빌드와 `target/`을 미리 굽는다. 그래도 느리면 `opt-level=1` 프로필을 시나리오 계약에 고정한다 |
 | D1에 대화형 트랜잭션이 없음 | CAS UPDATE + `meta.changes` 확인, 함께 바뀌어야 하는 문장은 `batch()`(하나의 트랜잭션)로 묶는다. 장시간 작업 중에는 DB 잠금을 잡지 않는다는 기획안 원칙과도 맞는다 |
 | D1 행 2 MB 한도 | 큰 로그·raw 측정·diff는 R2에 두고 D1에는 해시·크기·키만 둔다. 모델 컨텍스트로 보내는 증거도 Rust에서 잘라서 보낸다 |
@@ -144,12 +144,26 @@ D2가 끝날 때 완주하지 못하면 다음 순서로 범위를 줄인다: `P
 | 로컬 Docker 없이 배포 불가 | GitHub Actions에서 `wrangler deploy`를 실행하는 워크플로를 둔다(CF API 토큰은 사용자가 secret으로 등록) |
 | 모델 패치가 search 불일치나 범위 밖 경로를 가리킴 | policy 거절을 run_event로 남기고, 구조화 응답 보정 1회 후 다음 턴으로 넘긴다(예산 차감) |
 
-## 다음 산출물
+## 진행 상황
 
-1. **시스템 흐름도**: `/archify`는 이 세션에 스킬로 설치돼 있지 않고 플러그인 카탈로그에서도 찾지 못했다. 그래서 같은 목적의 다이어그램을 직접 만든다.
-   - (a) HTML Artifact "AIOps 실험 엔지니어 구조도".
-   - (b) 같은 내용을 `docs/architecture.md`에 mermaid로 저장.
-2. 이어서 D1(첫날) 구현을 시작한다.
+### 1일차 (11/2) — 로컬 완료, Cloudflare 실측은 배포 대기
+
+로컬 측정 환경: Claude Code 클라우드 컨테이너(4 vCPU), rustc 1.97, PostgreSQL 16, k6 v0.57.0, 100 rps, 20초 × 3쌍.
+Cloudflare Container에서 잰 값이 아니며, 같은 숫자가 나온다고 가정하지 않는다.
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| A/A 노이즈 (baseline 대 baseline) | 쌍별 0.7% / 3.7% / 2.3%, 중앙값 2.3% (허용치 15%) |
+| 관측 증거 | 요청당 SQL 평균 81.9개(최대 182), 평균 DB 시간 28.5 ms |
+| 정상 후보 (JOIN 1회) | **VERIFIED** — p95 48~51 ms → 4.1~4.9 ms, 쌍별 개선 89.9% / 91.5% / 92.0%, 요청당 SQL 3.0개, golden 11/11 |
+| 항목 누락 후보 | **REJECTED** — golden 6/11, 부하 측정 없이 9초 만에 종료 |
+| `Cargo.toml` 수정 후보 | **POLICY_REJECTED** — 아무것도 실행하지 않음 |
+| 1,500 rps 과부하 | **INCONCLUSIVE** — baseline이 반복 6,332건 누락 |
+| 측정 중 취소 (HTTP API) | `cancelled`, 남은 프로세스 0 |
+| 후보 증분 빌드 | 8.1초 (`--offline --locked`) |
+
+남은 1일차 항목은 사용자의 배포(`docs/setup.md`)가 필요하다: Cloudflare Container에서 빌드 시간·A/A 노이즈·누락 여부 실측.
+위 후보 세 개는 하네스 검증용으로 직접 작성한 것이며 모델 출력이 아니다.
 
 ## 검증 방법
 

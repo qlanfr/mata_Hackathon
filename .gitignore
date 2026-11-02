@@ -5,3 +5,4 @@ node_modules
 .wrangler
 .dev.vars
 *.log
+edge/worker-configuration.d.ts

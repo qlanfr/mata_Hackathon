@@ -1,0 +1,33 @@
+name: Deploy edge
+
+# Manual only: builds the runner image (Docker is available on GitHub runners) and deploys the
+# Worker. Needs repository secrets CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and ADMIN_TOKEN.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: edge
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: edge/package-lock.json
+      - run: npm ci
+      - run: npx wrangler types && npx tsc --noEmit
+      - run: npx wrangler deploy
+      - name: Set ADMIN_TOKEN
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$ADMIN_TOKEN" ]; then echo "ADMIN_TOKEN secret is missing" >&2; exit 1; fi
+          printf '%s' "$ADMIN_TOKEN" | npx wrangler secret put ADMIN_TOKEN
