@@ -2,7 +2,7 @@
 # PostgreSQL for the experiment target, and k6 for load. The build context is the repository root
 # (see edge/wrangler.jsonc). The container runs with internet access disabled, so everything a
 # candidate build needs is fetched and compiled here, at image build time.
-FROM rust:1.97-slim-bookworm
+FROM --platform=linux/amd64 rust:1.97-slim-bookworm
 
 ARG K6_VERSION=v0.57.0
 RUN apt-get update \
