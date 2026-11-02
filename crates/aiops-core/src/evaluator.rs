@@ -96,6 +96,15 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
         aa_noise,
         baseline_spread: baseline_spread(&report.pairs),
     };
+    // Always report the raw per-pair change, even when an earlier gate decides the outcome.
+    if report.pairs.iter().all(|p| p.baseline.p95_ms > 0.0) {
+        eval.improvements = report
+            .pairs
+            .iter()
+            .map(|p| (p.baseline.p95_ms - p.candidate.p95_ms) / p.baseline.p95_ms)
+            .collect();
+        eval.median_improvement = median(&eval.improvements);
+    }
     let decide = |mut eval: Evaluation, outcome: Outcome, reason: String| {
         eval.outcome = outcome;
         eval.reasons.insert(0, reason);
@@ -289,13 +298,9 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
     }
 
     // Gates 5–7: the performance claim itself.
-    eval.improvements = report
-        .pairs
-        .iter()
-        .map(|p| (p.baseline.p95_ms - p.candidate.p95_ms) / p.baseline.p95_ms)
-        .collect();
-    let med = median(&eval.improvements).expect("at least one pair");
-    eval.median_improvement = Some(med);
+    let med = eval
+        .median_improvement
+        .expect("at least one pair with a positive baseline p95");
     let all_better = eval.improvements.iter().all(|&i| i > 0.0);
     let all_worse = eval.improvements.iter().all(|&i| i <= 0.0);
     let pct = |x: f64| format!("{:.1}%", x * 100.0);
@@ -477,6 +482,11 @@ mod tests {
         let e = evaluate(&contract(), &r, None);
         assert_eq!(e.outcome, Outcome::Inconclusive);
         assert!(e.reasons[0].contains("varied"));
+        assert_eq!(
+            e.improvements.len(),
+            3,
+            "the measured change is reported even when inconclusive"
+        );
     }
 
     #[test]

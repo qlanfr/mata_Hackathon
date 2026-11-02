@@ -1,0 +1,27 @@
+[package]
+name = "aiopsd"
+description = "Control plane: API, orchestrator state machine, agent harness, evaluator."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aiops-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+axum.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls"] }
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+futures-util.workspace = true
+rusqlite.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

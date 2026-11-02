@@ -1,0 +1,28 @@
+# Control plane image: the aiopsd binary plus the read-only scenario, fixture source (for the
+# read_source tool and patch preflight), prompts and migrations. Build context: repository root.
+FROM --platform=linux/amd64 rust:1.97-slim-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY apps apps
+COPY prompts prompts
+RUN cargo build --release --locked -p aiopsd
+
+FROM --platform=linux/amd64 debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --create-home --uid 10001 aiops
+WORKDIR /opt/aiops
+COPY --from=build /src/target/release/aiopsd /usr/local/bin/aiopsd
+COPY fixtures fixtures
+COPY scenarios scenarios
+COPY prompts prompts
+COPY migrations migrations
+USER aiops
+# AIOPS_DB, AIOPS_ARTIFACTS, AIOPS_RUNNER_URL and the Meta settings come from the Worker.
+ENV AIOPS_REPO_ROOT=/opt/aiops \
+    AIOPS_LISTEN=0.0.0.0:8080 \
+    RUST_LOG=info
+EXPOSE 8080
+CMD ["aiopsd"]

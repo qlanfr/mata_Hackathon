@@ -1,0 +1,109 @@
+{
+  "_note": "Scripted replay for development and demos without a Meta API key. Runs that use it are labelled 'replay'. Answers cite evidence IDs and contain no measured numbers.",
+  "observer": [
+    [
+      {
+        "type": "call",
+        "name": "query_metrics",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "read_request_evidence",
+        "arguments": {
+          "limit": 5
+        }
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/repo.rs"
+        }
+      },
+      {
+        "type": "answer",
+        "content": {
+          "facts": [
+            {
+              "statement": "Each order-list request issues many SQL statements; the count grows with the number of orders and line items on the page.",
+              "evidence": [
+                "metric:avg_sql_count",
+                "metric:max_sql_count"
+              ]
+            },
+            {
+              "statement": "Most request time is spent waiting on the database.",
+              "evidence": [
+                "metric:avg_db_ms",
+                "metric:avg_latency_ms"
+              ]
+            },
+            {
+              "statement": "load_order_details queries order_items once per order and products once per line item.",
+              "evidence": [
+                "src:src/repo.rs"
+              ]
+            }
+          ],
+          "hypotheses": [
+            {
+              "statement": "An N+1 query pattern in load_order_details dominates p95 latency; batching item and product lookups into one query should lower it.",
+              "confidence": "high"
+            },
+            {
+              "statement": "Connection pool waits add latency under load because each request holds many short queries.",
+              "confidence": "low"
+            }
+          ],
+          "affected_path": "GET /users/{user_id}/orders -> repo::load_order_details",
+          "missing_information": [
+            "Query plans for order_items and products lookups",
+            "Pool wait time separated from query execution time"
+          ],
+          "priority": "Remove per-order and per-item queries in load_order_details without changing the response."
+        }
+      }
+    ]
+  ],
+  "experimenter": [
+    [
+      {
+        "type": "call",
+        "name": "read_trial_result",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/repo.rs"
+        }
+      },
+      {
+        "type": "answer",
+        "content": {
+          "action": "experiment",
+          "hypothesis": "The N+1 pattern in load_order_details dominates p95; fetching all items of the page with one JOIN removes most queries.",
+          "evidence": [
+            "metric:avg_sql_count",
+            "src:src/repo.rs"
+          ],
+          "expected_effect": "SQL statements per request drop to a small constant and p95 falls well past the 20% target at the same arrival rate.",
+          "falsified_if": "p95 improves by less than 20% in the paired runs, or any golden case changes.",
+          "patch": {
+            "summary": "Load every line item of the page with one JOIN query instead of one query per order and per item.",
+            "edits": [
+              {
+                "path": "src/repo.rs",
+                "search": "/// Loads the line items of each order, with product names.\npub async fn load_order_details(\n    pool: &PgPool,\n    tracker: &Tracker,\n    orders: Vec<OrderRow>,\n) -> Result<Vec<OrderView>, sqlx::Error> {\n    let mut views = Vec::with_capacity(orders.len());\n    for order in orders {\n        let item_rows = tracker\n            .run(\n                sqlx::query(\n                    \"SELECT product_id, quantity, unit_price_cents FROM order_items \\\n                     WHERE order_id = $1 ORDER BY id\",\n                )\n                .bind(order.id)\n                .fetch_all(pool),\n            )\n            .await?;\n        let mut items = Vec::with_capacity(item_rows.len());\n        for row in item_rows {\n            let product_id: i64 = row.get(\"product_id\");\n            let product = tracker\n                .run(sqlx::query(\"SELECT name FROM products WHERE id = $1\").bind(product_id).fetch_one(pool))\n                .await?;\n            items.push(ItemView::new(\n                product_id,\n                product.get(\"name\"),\n                row.get(\"quantity\"),\n                row.get(\"unit_price_cents\"),\n            ));\n        }\n        views.push(OrderView::from_parts(order, items));\n    }\n    Ok(views)\n}\n",
+                "replace": "/// Loads the line items of each order, with product names.\npub async fn load_order_details(\n    pool: &PgPool,\n    tracker: &Tracker,\n    orders: Vec<OrderRow>,\n) -> Result<Vec<OrderView>, sqlx::Error> {\n    if orders.is_empty() {\n        return Ok(Vec::new());\n    }\n    // One query for every item of every order on the page, joined with product names.\n    let order_ids: Vec<i64> = orders.iter().map(|o| o.id).collect();\n    let rows = tracker\n        .run(\n            sqlx::query(\n                \"SELECT oi.order_id, oi.product_id, p.name, oi.quantity, oi.unit_price_cents \\\n                 FROM order_items oi JOIN products p ON p.id = oi.product_id \\\n                 WHERE oi.order_id = ANY($1) ORDER BY oi.order_id, oi.id\",\n            )\n            .bind(order_ids.as_slice())\n            .fetch_all(pool),\n        )\n        .await?;\n    let mut by_order: std::collections::HashMap<i64, Vec<ItemView>> =\n        std::collections::HashMap::with_capacity(orders.len());\n    for row in rows {\n        by_order.entry(row.get(\"order_id\")).or_default().push(ItemView::new(\n            row.get(\"product_id\"),\n            row.get(\"name\"),\n            row.get(\"quantity\"),\n            row.get(\"unit_price_cents\"),\n        ));\n    }\n    Ok(orders\n        .into_iter()\n        .map(|order| {\n            let items = by_order.remove(&order.id).unwrap_or_default();\n            OrderView::from_parts(order, items)\n        })\n        .collect())\n}\n"
+              }
+            ]
+          },
+          "stop_reason": null
+        }
+      }
+    ]
+  ]
+}

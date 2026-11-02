@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aiops-core", "apps/aiops-runner"]
+members = ["crates/aiops-core", "apps/aiops-runner", "apps/aiopsd"]
 # The experiment target is built on its own (inside the runner), never as part of this workspace.
 exclude = ["fixtures/orders-api"]
 
@@ -23,8 +23,10 @@ tokio-util = "0.7"
 axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 clap = { version = "4", features = ["derive", "env"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 libc = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures-util = "0.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
 aiops-core = { path = "crates/aiops-core" }

@@ -165,6 +165,31 @@ Cloudflare Container에서 잰 값이 아니며, 같은 숫자가 나온다고 �
 남은 1일차 항목은 사용자의 배포(`docs/setup.md`)가 필요하다: Cloudflare Container에서 빌드 시간·A/A 노이즈·누락 여부 실측.
 위 후보 세 개는 하네스 검증용으로 직접 작성한 것이며 모델 출력이 아니다.
 
+### 2일차 (11/3) — 로컬 완료(Replay), Cloudflare 배포 대기
+
+만든 것: `aiopsd`(상태 머신, D1/SQLite 제어 DB, 에이전트 하네스와 도구 6종, Meta/Replay provider, API·SSE, 알림 병합, 취소), edge Worker 확장(aiopsd 컨테이너, `runner`/`d1`/`r2` relay, cron), `Dockerfile.aiopsd`, D1 `aiops-control`(WNAM)과 R2 `aiops-artifacts` 생성.
+
+로컬 측정 환경은 1일차와 같다(4 vCPU 개발 컨테이너, 100 rps). 모델은 Replay provider이며, Meta API는 아직 호출하지 않았다.
+
+| 확인 항목 | 결과 |
+| --- | --- |
+| `POST /api/v1/runs` 한 번으로 완주 | **COMPLETED** (290초): baseline(A/A 6.5%) → 관측 AI(도구 3회) → 실험 AI(도구 2회) → 사전 검사 → 빌드 10.4초 → golden 11/11 → **VERIFIED**, 쌍별 p95 개선 88.9 / 91.3 / 90.7% |
+| 측정 중 다른 작업으로 CPU 간섭 | 같은 패치가 **INCONCLUSIVE** (baseline p95 쌍별 편차 19.7% > 15%). 잘못된 VERIFIED는 나오지 않았다. 이후 INCONCLUSIVE는 같은 패치를 1회 재측정하도록 바꿨다 |
+| 같은 fingerprint 알림 2회 | 두 번째는 같은 run에 `alert_merged`로 병합. run이 끝난 뒤 같은 fingerprint는 새 run 생성 |
+| baseline 측정 중 취소 | CANCELLING → CANCELLED 5.5초, "runner가 프로세스 종료를 확인", 남은 프로세스 0 |
+| aiopsd 강제 종료(SIGKILL) 후 재시작 | 같은 runner job을 이어 받아 진행, job 중복 없음 |
+| trial 측정 중 runner 재시작(SIGTERM → 새 boot_id) | job 유실 기록 → 새 runner에 2차 시도 → COMPLETED(VERIFIED) |
+| runner가 꺼진 동안 취소 | CANCELLING 유지 → runner가 새 boot_id로 돌아오자 "runner 재시작으로 프로세스 소멸"로 CANCELLED |
+| 로컬 D1(workerd)에서 마이그레이션·핵심 SQL | 부분 unique index, 조건부 이벤트 INSERT, CAS 동작 확인. 원격 D1에서는 배포 때 처음 실행된다 |
+
+검증 중 찾아서 고친 문제:
+- 정확성 검사처럼 polling 간격(3초)보다 짧은 단계가 타임라인에서 빠졌다 → runner가 단계 이력을 돌려주고 aiopsd가 순서대로 기록.
+- 종료 중인 runner가 새 job을 받아 재시도가 사라졌다 → 종료 중에는 503으로 거절.
+- runner에 닿지 못하는 동안 같은 오류 이벤트가 3초마다 쌓였다 → 같은 오류는 한 번만 기록.
+- 보류(INCONCLUSIVE) 판정에서도 쌍별 개선율을 기록하도록 평가기 수정.
+
+남은 것: 사용자 배포 후 Cloudflare에서 같은 시나리오 실행, Meta API 키를 받은 뒤 계약 테스트.
+
 ## 검증 방법
 
 - `cargo test -p aiops-core`: 상태 전이 표, 예산 초과 거절, policy(범위 밖 경로·symlink) 거절, Evaluator 규칙(중앙값·방향 일치·게이트) 단위 테스트.

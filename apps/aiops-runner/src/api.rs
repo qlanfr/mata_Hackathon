@@ -50,7 +50,15 @@ struct JobView {
     boot_id: String,
     created_at_ms: u64,
     finished_at_ms: Option<u64>,
+    /// Every phase the job entered, in order, with its start time (epoch ms).
+    phase_history: Vec<PhaseMark>,
     result: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PhaseMark {
+    phase: String,
+    at_ms: u64,
 }
 
 struct Entry {
@@ -62,6 +70,8 @@ struct Entry {
 struct AppState {
     rt: Arc<Runtime>,
     jobs: Arc<Mutex<HashMap<String, Entry>>>,
+    /// Set once the runner is stopping: running jobs are being cancelled and new ones refused.
+    shutdown: CancellationToken,
 }
 
 fn now_ms() -> u64 {
@@ -75,6 +85,7 @@ pub fn router(rt: Arc<Runtime>, shutdown: CancellationToken) -> Router {
     let state = AppState {
         rt,
         jobs: Arc::new(Mutex::new(HashMap::new())),
+        shutdown: shutdown.clone(),
     };
     // Cancel whatever is running when the runner is asked to stop.
     {
@@ -107,6 +118,14 @@ async fn healthz(State(state): State<AppState>) -> Json<Value> {
 
 async fn create_job(State(state): State<AppState>, Json(req): Json<JobRequest>) -> Response {
     let boot_id = state.rt.boot_id().to_owned();
+    if state.shutdown.is_cancelled() {
+        // A job accepted now would die with this process; the caller retries on the next runner.
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "shutting_down", "boot_id": boot_id })),
+        )
+            .into_response();
+    }
     let mut jobs = state.jobs.lock().expect("jobs lock");
     if let Some(running) = jobs
         .values()
@@ -148,6 +167,7 @@ async fn create_job(State(state): State<AppState>, Json(req): Json<JobRequest>) 
                 boot_id: boot_id.clone(),
                 created_at_ms: now_ms(),
                 finished_at_ms: None,
+                phase_history: Vec::new(),
                 result: None,
             },
             control: control.clone(),
@@ -193,6 +213,12 @@ async fn get_job(State(state): State<AppState>, Path(id): Path<String>) -> Respo
             if view.finished_at_ms.is_none() {
                 view.phase = entry.control.phase();
             }
+            view.phase_history = entry
+                .control
+                .history()
+                .into_iter()
+                .map(|(phase, at_ms)| PhaseMark { phase, at_ms })
+                .collect();
             Json(view).into_response()
         }
         None => unknown_job(&state),

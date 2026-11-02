@@ -25,21 +25,40 @@ const PORT_BASELINE: u16 = 18081;
 const PORT_CANDIDATE: u16 = 18082;
 const PORT_BASELINE_B: u16 = 18083;
 
-/// Shared handle for one running job: its cancellation token and current phase.
+/// Shared handle for one running job: its cancellation token, current phase and phase history.
+/// The history lets a caller that polls every few seconds still see phases that were shorter
+/// than its polling interval.
 #[derive(Clone, Default)]
 pub struct JobControl {
     pub cancel: CancellationToken,
-    phase: Arc<Mutex<String>>,
+    phases: Arc<Mutex<Vec<(String, u64)>>>,
 }
 
 impl JobControl {
     pub fn phase(&self) -> String {
-        self.phase.lock().expect("phase lock").clone()
+        self.phases
+            .lock()
+            .expect("phase lock")
+            .last()
+            .map(|p| p.0.clone())
+            .unwrap_or_else(|| "queued".into())
+    }
+
+    /// Every phase entered so far, with its start time (epoch ms).
+    pub fn history(&self) -> Vec<(String, u64)> {
+        self.phases.lock().expect("phase lock").clone()
     }
 
     fn set_phase(&self, phase: &str) {
         tracing::info!(phase, "job phase");
-        *self.phase.lock().expect("phase lock") = phase.to_owned();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        self.phases
+            .lock()
+            .expect("phase lock")
+            .push((phase.to_owned(), now));
     }
 
     fn check(&self) -> anyhow::Result<()> {

@@ -4,9 +4,32 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-13",
   "observability": { "enabled": true },
-  // Day 1: the runner only, behind an admin-token route, to measure build time and noise on
-  // Cloudflare. Day 2 adds the aiopsd container, D1, R2, the cron tick and the React assets.
+  // Every minute: if any run is unfinished, wake aiopsd so it keeps advancing after the browser
+  // closes or the container restarts. Idle accounts cost nothing.
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "META_BASE_URL": "https://api.meta.ai/v1",
+    // Set the model ID here (or as a secret) together with the META_API_KEY secret.
+    // Until both are set, aiopsd uses the replay provider and labels runs `replay`.
+    "META_MODEL": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aiops-control",
+      "database_id": "40be013f-ab7b-40eb-889a-40454179225f",
+      "migrations_dir": "../migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "aiops-artifacts" }],
   "containers": [
+    {
+      "class_name": "AiopsdContainer",
+      "image": "../deploy/Dockerfile.aiopsd",
+      "image_build_context": "..",
+      "instance_type": "standard-1",
+      "max_instances": 1
+    },
     {
       "class_name": "RunnerContainer",
       "image": "../deploy/Dockerfile.runner",
@@ -16,7 +39,13 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "RUNNER", "class_name": "RunnerContainer" }]
+    "bindings": [
+      { "name": "AIOPSD", "class_name": "AiopsdContainer" },
+      { "name": "RUNNER", "class_name": "RunnerContainer" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RunnerContainer"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RunnerContainer"] },
+    { "tag": "v2", "new_sqlite_classes": ["AiopsdContainer"] }
+  ]
 }

@@ -69,7 +69,8 @@ stateDiagram-v2
   CHECKING --> EVALUATING: 정확성 실패 (측정 생략)
   BENCHMARKING --> EVALUATING: baseline·candidate 교대 3쌍
   EVALUATING --> COMPLETED: VERIFIED
-  EVALUATING --> PLANNING: REJECTED · INCONCLUSIVE + 예산 남음
+  EVALUATING --> PREPARING: INCONCLUSIVE → 같은 패치 1회 재측정
+  EVALUATING --> PLANNING: REJECTED · 재측정 후 INCONCLUSIVE + 예산 남음
   EVALUATING --> EXHAUSTED: 예산 소진
   CANCELLING --> CANCELLED: runner가 프로세스·컨테이너 정리 확인
   COMPLETED --> [*]
@@ -80,7 +81,9 @@ stateDiagram-v2
 
 - 어느 상태에서든 취소 요청을 받으면 요청을 먼저 저장하고 `CANCELLING`으로 전이합니다. 정리가 확인된 뒤에만 `CANCELLED`로 확정합니다.
 - 복구할 수 없는 오류가 나면 `FAILED`로 끝냅니다. 이전 trial의 기각 근거는 run이 어떻게 끝나든 남습니다.
-- runner의 `boot_id`가 바뀌면 해당 attempt를 `RUNNER_LOST`로 기록합니다. 아티팩트를 대조하기 전에는 같은 작업을 다시 실행하지 않습니다.
+- runner의 `boot_id`가 바뀌거나 runner가 job을 모른다고 답하면 그 job을 `lost`로 기록하고 한 번만 다시 제출합니다. runner가 재시작했다면 그 job의 프로세스와 작업공간은 이미 사라졌으므로 중복 실행이 생기지 않습니다. 종료 중인 runner는 새 job을 503으로 거절합니다.
+- runner는 job의 단계 이력을 함께 돌려줍니다. polling 간격보다 짧게 끝난 단계(예: 정확성 검사)도 타임라인에 순서대로 남습니다.
+- 측정이 흔들려 INCONCLUSIVE가 나오면 같은 패치를 한 번 더 측정합니다. 거절(REJECTED)된 패치는 다시 돌리지 않습니다.
 
 ## 3. 한 번의 trial (상태머신이 주도)
 
