@@ -4,7 +4,7 @@
 
 ## 1. 배포 구성
 
-Worker는 라우팅, 인증, 컨테이너 수명만 담당합니다. 제품 로직은 두 Rust 컨테이너에 있습니다. runner를 호출할 때는 항상 Worker의 outbound handler를 거칩니다.
+Worker는 라우팅, 인증, 컨테이너 수명, 바인딩 중계만 담당합니다. 제품 로직은 두 Rust 컨테이너에 있습니다. 컨테이너는 D1·R2·runner에 직접 닿지 못하고, 항상 Worker의 outbound handler를 거칩니다.
 
 ```mermaid
 flowchart LR
@@ -14,8 +14,8 @@ flowchart LR
     W1["Static Assets<br/>web/dist"]
     W2["/api/* 라우터<br/>POST는 Bearer 검사"]
     W3["Cron Trigger<br/>1분마다"]
-    W4["Secrets<br/>META_API_KEY · DATABASE_URL"]
-    W5["outboundByHost<br/>runner.internal"]
+    W4["Secrets<br/>META_API_KEY · ADMIN_TOKEN"]
+    W5["outboundByHost<br/>runner · d1 · r2 .internal"]
   end
 
   subgraph A["aiopsd · Rust Axum · Container standard-1 (인터넷 허용)"]
@@ -23,27 +23,32 @@ flowchart LR
     A2["오케스트레이터<br/>tick · CAS 상태 전이"]
     A3["에이전트 하네스<br/>관측·실험 역할 · 도구 · 예산"]
     A4["Evaluator<br/>판정 확정"]
-    A5["runner 클라이언트<br/>POST /jobs · 5초 polling"]
+    A5["outbound 클라이언트<br/>D1 쿼리 · R2 · runner jobs"]
   end
 
-  subgraph R["aiops-runner · Rust · Container standard-4 (인터넷 차단, 비밀값 없음)"]
-    R1["작업공간·패치"] --> R2["cargo build --offline"] --> R3["내장 Postgres"] --> R4["골든 케이스"] --> R5["k6 교대 3쌍"] --> R6["프로세스 그룹 정리"]
+  subgraph R["aiops-runner · Rust · Container standard-4 (인터넷 차단, 바인딩 없음)"]
+    R1["작업공간·패치"] --> R2["cargo build --offline"] --> R3["내장 PostgreSQL<br/>(실험 대상 DB)"] --> R4["골든 케이스"] --> R5["k6 교대 3쌍"] --> R6["프로세스 그룹 정리"]
   end
 
-  N[("Neon Postgres<br/>runs · trials · jobs · run_events · artifacts")]
+  D1[("Cloudflare D1<br/>runs · trials · jobs · run_events · artifacts")]
+  R2B[("Cloudflare R2<br/>로그 · raw 측정 · diff")]
   M["Meta 모델 API<br/>키 없으면 ReplayProvider"]
 
   B -->|"HTTPS"| W2
   W1 -->|"정적 파일"| B
   W2 -->|"DO fetch"| A1
   W3 -->|"/internal/tick"| A2
-  A2 -->|"SQLx · TCP 5432"| N
   A3 -->|"Responses API"| M
-  A5 -->|"http://runner.internal"| W5
+  A5 -->|"http://*.internal"| W5
+  W5 -->|"env.DB · query / batch"| D1
+  W5 -->|"env.ARTIFACTS"| R2B
   W5 -->|"Runner DO fetch<br/>응답에 결과 + boot_id"| R1
 ```
 
-- runner는 결과를 DB에 쓰지 않습니다. aiopsd가 polling 응답으로 결과를 받아 저장합니다. 그래서 runner 컨테이너에는 DB 자격증명도 API 키도 없습니다.
+- 제어 DB는 D1(SQLite)입니다. 실험 대상 DB는 runner 안의 PostgreSQL입니다. 제품이 겨냥하는 사용자가 PostgreSQL을 운영하는 팀이어서 최적화 대상은 바꾸지 않았습니다.
+- D1에는 대화형 트랜잭션이 없습니다. 상태 전이는 `state_version` CAS UPDATE로 하고 `meta.changes == 1`을 확인합니다. 함께 바뀌어야 하는 문장(상태 변경 + 이벤트 기록)은 하나의 트랜잭션인 `batch()`로 묶습니다.
+- D1 행은 2 MB를 넘을 수 없습니다. 큰 로그와 raw 측정값은 R2에 두고, D1에는 해시·크기·키만 남깁니다.
+- runner는 결과를 DB에 쓰지 않습니다. aiopsd가 polling 응답으로 결과를 받아 저장합니다. RunnerContainer에는 outbound handler가 없어서 runner 컨테이너는 D1·R2·API 키 어디에도 닿지 못합니다.
 - polling은 상태 조회이면서 runner keep-alive 역할도 합니다. Container 내부에서 도는 코드는 activity로 치지 않기 때문입니다.
 - Cron tick은 브라우저가 닫혀도 aiopsd가 멈추지 않게 합니다. tick이 돌 때마다 DB 상태를 기준으로 진행 중인 run을 이어 갑니다.
 
