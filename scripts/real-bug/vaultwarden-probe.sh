@@ -37,7 +37,9 @@ for v in base fix; do
   sha=BASE_SHA; [ "$v" = fix ] && sha=FIX_SHA
   git -C "$WORK/vw" worktree add -q "$WORK/$v" "${!sha}"
   log "cargo build $v (${!sha:0:12})"
-  docker run --rm -v "$WORK/$v:/src" -v vw-cargo:/usr/local/cargo/registry -w /src vw-build \
+  # The repository's rust-toolchain file says "stable", which would pull today's compiler; the
+  # environment variable takes precedence and keeps the 1.60 compiler of the image.
+  docker run --rm -e RUSTUP_TOOLCHAIN=1.60.0 -v "$WORK/$v:/src" -v vw-cargo:/usr/local/cargo/registry -w /src vw-build \
     cargo build --release --locked --features postgresql > "$OUT/build-$v.log" 2>&1 \
     || { tail -40 "$OUT/build-$v.log"; exit 1; }
   log "built $v: $(tail -1 "$OUT/build-$v.log")"
