@@ -8,3 +8,4 @@ node_modules
 edge/worker-configuration.d.ts
 web/dist
 /external
+__pycache__/
