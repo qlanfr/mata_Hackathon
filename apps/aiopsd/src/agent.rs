@@ -41,6 +41,13 @@ impl std::fmt::Display for AgentError {
     }
 }
 
+/// Turns with tools one role gets per step before it must answer from what it has read. Large
+/// codebases otherwise invite reading without end: on Vaultwarden, the experimenter spent the
+/// run's whole budget reading files and never proposed anything.
+const ROLE_TOOL_TURNS: u32 = 12;
+/// Run-wide model turns kept back so that a role near the end of the budget can still answer.
+const ANSWER_RESERVE: u32 = 2;
+
 pub struct Limits {
     pub max_model_turns: u32,
     pub max_tool_calls: u32,
@@ -73,6 +80,9 @@ pub async fn run_role<T: Structured>(
     let mut repaired = false;
     let db = tools_ctx.db;
     let run_id = tools_ctx.run_id;
+    let mut role_turns = 0u32;
+    let mut wrapping_up = false;
+    let mut seen_reads: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     loop {
         // Check before calling: spending is only prevented if it is checked up front.
@@ -82,14 +92,39 @@ pub async fn run_role<T: Structured>(
                 usage.model_turns
             )));
         }
+        let left = limits.max_model_turns - usage.model_turns;
+        if !wrapping_up && (role_turns >= ROLE_TOOL_TURNS || left <= ANSWER_RESERVE) {
+            wrapping_up = true;
+            let reason = if role_turns >= ROLE_TOOL_TURNS {
+                format!("{role_turns} turns with tools used in this step")
+            } else {
+                format!("{left} model turns left in this run")
+            };
+            let _ = events::append(
+                db,
+                run_id,
+                "agent_wrap_up",
+                json!({ "role": role.as_str(), "reason": reason }),
+            )
+            .await;
+            input.push(Item::Message {
+                role: "user".into(),
+                content: format!(
+                    "No more tool calls in this step ({reason}). Answer now from what you have read, with only the JSON object for the `{}` schema.",
+                    T::NAME
+                ),
+            });
+        }
         usage.model_turns += 1;
+        role_turns += 1;
+        let no_tools: Vec<crate::llm::ToolSpec> = Vec::new();
         let response = provider
             .respond(&ModelRequest {
                 role,
                 round,
                 instructions: instructions(role),
                 input: &input,
-                tools: &tool_specs,
+                tools: if wrapping_up { &no_tools } else { &tool_specs },
                 output_schema: (T::NAME, &schema),
                 model,
             })
@@ -133,6 +168,17 @@ pub async fn run_role<T: Structured>(
         )
         .await;
 
+        if !calls.is_empty() && wrapping_up {
+            // Tools were withdrawn; a call now is not executed. Ask once more for the answer.
+            input.push(Item::Message {
+                role: "user".into(),
+                content: format!(
+                    "Tools are not available any more. Reply with only the JSON object for the `{}` schema.",
+                    T::NAME
+                ),
+            });
+            continue;
+        }
         if !calls.is_empty() {
             // Models often say what they are about to do before calling tools. That text is not
             // an answer; it stays in the conversation, ahead of the calls, as it was produced.
@@ -150,7 +196,13 @@ pub async fn run_role<T: Structured>(
                     )));
                 }
                 usage.tool_calls += 1;
-                let result = tools::execute(tools_ctx, role, &name, &arguments).await;
+                // Reading the same thing twice adds nothing but tokens: point back to it instead.
+                let key = format!("{name}:{}", parse_or_raw(&arguments));
+                let result = if name == "read_source" && !seen_reads.insert(key) {
+                    json!({ "note": "This exact read was already returned earlier in this conversation; use that output." })
+                } else {
+                    tools::execute(tools_ctx, role, &name, &arguments).await
+                };
                 let mut output = result.to_string();
                 if output.len() > MAX_TOOL_OUTPUT {
                     let cut = output

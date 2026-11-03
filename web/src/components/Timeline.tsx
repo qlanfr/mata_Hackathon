@@ -122,6 +122,8 @@ function render(e: RunEvent): Rendered | null {
       };
     case "agent_repair":
       return { actor: "model", tone: "problem", who: ROLE(p.role), title: "Answer rejected; one repair allowed", detail: p.problem };
+    case "agent_wrap_up":
+      return { actor: "model", who: ROLE(p.role), title: "Tools withdrawn; answer requested", detail: p.reason };
     case "observation":
       return {
         actor: "model",

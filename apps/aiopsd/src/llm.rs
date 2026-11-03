@@ -165,15 +165,19 @@ impl MetaProvider {
             .iter()
             .map(|t| json!({ "type": "function", "name": t.name, "description": t.description, "parameters": t.parameters }))
             .collect();
-        json!({
+        let mut body = json!({
             "model": req.model.unwrap_or(&self.model),
             "instructions": req.instructions,
             "input": input,
-            "tools": tools,
-            "tool_choice": "auto",
             "max_output_tokens": self.max_output_tokens,
             "text": { "format": { "type": "json_schema", "name": req.output_schema.0, "schema": req.output_schema.1, "strict": true } },
-        })
+        });
+        // A request without tools (the agent asking for the final answer) leaves both keys out.
+        if !tools.is_empty() {
+            body["tools"] = Value::Array(tools);
+            body["tool_choice"] = json!("auto");
+        }
+        body
     }
 
     async fn respond(&self, req: &ModelRequest<'_>) -> anyhow::Result<ModelResponse> {

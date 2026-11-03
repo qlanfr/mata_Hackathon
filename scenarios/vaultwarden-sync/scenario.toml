@@ -70,7 +70,7 @@ max_baseline_error_rate = 0.01
 
 [budget]
 max_candidates = 3
-max_model_turns = 30
-max_tool_calls = 60
+max_model_turns = 60
+max_tool_calls = 120
 max_run_minutes = 75
 build_timeout_s = 1500
