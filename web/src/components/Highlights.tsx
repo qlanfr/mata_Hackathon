@@ -4,7 +4,7 @@ import { api, type Run, type TrialReport } from "../api";
 import { ago, ms, pct, short } from "../format";
 import { useLoad } from "../hooks";
 import { Link } from "../router";
-import { SCORECARD, SCORECARD_AS_OF } from "../scorecard";
+import { REAL_BUG, SCORECARD, SCORECARD_AS_OF } from "../scorecard";
 import { ProviderBadge } from "./Status";
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -208,6 +208,46 @@ export function HarnessScorecard() {
             </a>
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+/** The loop on a real open-source bug; the numbers come from a GitHub Actions run, not this deployment. */
+export function RealBug() {
+  const r = REAL_BUG;
+  return (
+    <section className="card" aria-labelledby="realbug-title">
+      <div className="card-head">
+        <h2 id="realbug-title">On a real bug</h2>
+        <span className="row-inline">
+          <span className="pill s-ok">VERIFIED · {r.improvement}</span>
+        </span>
+      </div>
+      <p>
+        <b>{r.title}.</b> <span className="muted">{r.project}.</span>
+      </p>
+      <div className="tiles wide">
+        <div className="tile">
+          <span className="k">SQL per request</span>
+          <BeforeAfter from={r.sqlBefore} to={r.sqlAfter} />
+          <span className="s">counted in PostgreSQL during the measured runs</span>
+        </div>
+        <div className="tile">
+          <span className="k">p95 latency</span>
+          <BeforeAfter from={r.p95Before} to={r.p95After} />
+          <span className="s">median improvement {r.improvement} across 3 pairs</span>
+        </div>
+      </div>
+      <p className="small">{r.summary}</p>
+      <p className="muted small">{r.caveat}</p>
+      <div className="row-inline small">
+        <a href={r.runHref} target="_blank" rel="noreferrer">
+          The run on GitHub Actions
+        </a>
+        <a href={r.docHref} target="_blank" rel="noreferrer">
+          Every run, including the rejected ones
+        </a>
       </div>
     </section>
   );

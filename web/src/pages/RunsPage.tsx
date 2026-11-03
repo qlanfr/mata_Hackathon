@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, ApiError, TERMINAL } from "../api";
-import { HarnessScorecard, LatestVerified, ModelResults } from "../components/Highlights";
+import { HarnessScorecard, LatestVerified, ModelResults, RealBug } from "../components/Highlights";
 import { ProviderBadge, StatePill } from "../components/Status";
 import { ago, duration } from "../format";
 import { useLoad } from "../hooks";
@@ -47,6 +47,7 @@ export function RunsPage({ askToken }: { askToken: () => Promise<boolean> }) {
       </header>
 
       {runs.length > 0 && <LatestVerified runs={runs} />}
+      <RealBug />
       {runs.length > 0 && (
         <div className="grid-two">
           <ModelResults runs={runs} />

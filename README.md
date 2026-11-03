@@ -7,6 +7,7 @@ A Meta model (Muse Spark 1.3, through the Meta Model API) reads operational evid
 [한국어 README](README.ko.md)
 
 - **Live:** https://aiops-edge.yh9365.workers.dev (Cloudflare Workers, Containers, D1, R2). Reading is public; starting a run needs the admin token.
+- **On a real bug:** on Vaultwarden's documented N+1 (issue #1402, an open-source Rust Bitwarden server), the model's batched rewrite cut SQL per sync from 2,011 to 15 and p95 from 246 to 64 ms, and was VERIFIED (74%). See [the real-bug write-up](docs/real-bug-probe.md).
 - **Best run to open:** [`/runs/01a19da7-b2a2-70e0-af44-018eddd0c003`](https://aiops-edge.yh9365.workers.dev/runs/01a19da7-b2a2-70e0-af44-018eddd0c003). The model's first patch did not match the source, so the harness refused it before anything ran. The model read the refusal, fixed the patch, and the second one was VERIFIED.
 - **Stack:** Rust (Axum, Tokio, SQLx), React (Vite, TypeScript), Cloudflare Workers + Containers + D1 + R2, Meta Model API.
 
@@ -57,6 +58,22 @@ In every VERIFIED trial:
 
 Every run named the same cause and proposed the same kind of fix (one batched JOIN), but the patch text was different every time. Each patch therefore had to be verified on its own.
 
+### On a real bug: Vaultwarden
+
+The scenario above is hand-written, so we also ran the loop on a real, documented bug: Vaultwarden issue #1402, an N+1 on `GET /api/sync`, at the commit before its maintainers fixed it. These runs used a GitHub-hosted runner, not the Cloudflare deployment.
+
+| | Before | After (model's patch) |
+| --- | --- | --- |
+| SQL statements per sync (500 vault items) | 2,011 | 15 |
+| p95 at 8 requests per second | 246 ms | 64 ms |
+| Median pairwise improvement | | 74.2%, VERIFIED |
+
+- The model wrote a batched rewrite, one query per relation, which is the approach of the maintainers' own fix. It did so in both runs after the harness changes this bug led to. Every golden answer stayed identical.
+- The earlier runs are part of the result. One ran out of model turns, one patch was refused for an ambiguous search text, one rewrite did not compile, and a smaller correct change measured 18% on one machine (REJECTED) and 21% on another (VERIFIED).
+- The seed has no organizations or attachments, so those branches of the patch were not exercised by the correctness checks.
+
+All runs, the method and the harness changes are in [docs/real-bug-probe.md](docs/real-bug-probe.md).
+
 ## How we tested the harness itself
 
 A harness that says VERIFIED to everything would also produce the numbers above. So we attacked it.
@@ -71,8 +88,8 @@ A harness that says VERIFIED to everything would also produce the numbers above.
 
 ## Scope and limits
 
-- **One scenario.** The N+1 order list is a well-known problem. The point of the project is the verification loop, which knows nothing about N+1: the gates above are generic, and the model's patch is judged the same way whatever it does.
-- **A real bug is next.** Vaultwarden's documented N+1 on `/api/sync` (issue #1402, fixed in PR #2429) reproduces in a runner-like setup: 4,011 SQL statements per sync before the fix and 17 after, at 1000 vault items. The model loop has not been run on it yet. See [docs/real-bug-probe.md](docs/real-bug-probe.md).
+- **Two scenarios, both N+1.** The deployed one is hand-written; the second is a real bug in Vaultwarden, run in GitHub Actions. The gates themselves know nothing about N+1 and judge any patch the same way, but other kinds of performance problems have not been tried.
+- **The real-bug scenario is not deployed.** The deployment loads one scenario; choosing the scenario per run is the next change.
 - **Target shape.** Today the runner targets a Rust HTTP service on PostgreSQL, built offline from dependencies baked into the image. Adding another service is a scenario file, a seed and a load script; see [docs/adding-a-service.md](docs/adding-a-service.md).
 - **Correctness means "same as before".** Golden answers come from the original service, so a candidate must preserve existing behaviour. Invariants check a few rules that hold whatever the code, which also catches some bugs the original already had.
 - **Fixed load.** Results hold for the scenario's load profile and data, not for every workload.
@@ -121,7 +138,7 @@ Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back record
 
 - [docs/architecture.md](docs/architecture.md): deployment, run states, one trial, the gates
 - [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
-- [docs/real-bug-probe.md](docs/real-bug-probe.md): a real N+1 bug (Vaultwarden #1402) reproduced in a runner-like setup
+- [docs/real-bug-probe.md](docs/real-bug-probe.md): the loop on a real bug (Vaultwarden #1402): reproduction, every run, and the harness changes it led to
 - [docs/submission-text.md](docs/submission-text.md): project description for the submission
 - [docs/plan.md](docs/plan.md) (Korean): plan, daily log, every measured run and every bug found
 - [docs/mutation-results.md](docs/mutation-results.md): mutation testing results

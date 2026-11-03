@@ -33,6 +33,10 @@ On an order-list API with an N+1 query:
 - In one run the model's first patch did not match the source. The harness refused it before anything ran. The model read the refusal, corrected the patch, and the second one was VERIFIED.
 - In another, the measurement was too noisy (baseline varied 19.2%). The harness said INCONCLUSIVE twice instead of guessing, and the model's next candidate was VERIFIED.
 
+## On a real bug
+
+We also ran the loop on a documented bug in a real open-source Rust project: Vaultwarden issue #1402, an N+1 on `GET /api/sync`, at the commit before its maintainers fixed it (run on a GitHub-hosted runner). The model's batched rewrite, the same approach as the maintainers' fix, cut SQL statements per sync from 2,011 to 15 and p95 from 246 to 64 ms, with every golden answer identical: VERIFIED at 74%. It got there in both runs after we fixed what this codebase exposed in our harness. Before that, one run ran out of turns, one rewrite did not compile, and a smaller correct change measured 18% on one machine and 21% on another, so it was REJECTED once and VERIFIED once.
+
 ## How we know the harness is not a rubber stamp
 
 - 15 hand-written trap patches, each built to fail exactly one gate (wrong item order, leaked orders, rounded totals, edited golden answers, slower code, a crash on one product, a race under load, a build error). All 15 got the expected verdict for the expected reason in CI.
@@ -41,11 +45,11 @@ On an order-list API with an N+1 query:
 
 ## Honest scope
 
-This is one scenario, and N+1 is a well-known problem. What the project contributes is the loop around the model: the gates know nothing about N+1 and judge any patch the same way. The runner currently targets Rust HTTP services on PostgreSQL. Adding another service is a scenario file, a seed and a load script.
+Both scenarios are N+1 problems, one hand-written and one real. What the project contributes is the loop around the model: the gates know nothing about N+1 and judge any patch the same way, but other kinds of performance problems have not been tried. The runner targets Rust HTTP services on PostgreSQL; adding one is a scenario file, a seed and a load script, as the Vaultwarden scenario shows. The real-bug seed has no organizations or attachments, so those branches of the model's patch were not exercised.
 
 ## What's next
 
-Point it at real repositories and real performance bugs, open a pull request with the evidence when a patch is VERIFIED, and generate golden cases from recorded production traffic.
+Choose the scenario per run so the real-bug scenario can run on the deployment, try other kinds of performance problems, open a pull request with the evidence when a patch is VERIFIED, and generate golden cases from recorded production traffic.
 
 ## Built with
 

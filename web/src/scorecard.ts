@@ -40,3 +40,19 @@ export const SCORECARD: ScoreItem[] = [
     href: `${repo}/blob/claude/busy-cannon-5b5n40/scenarios/n-plus-one/scenario.toml`,
   },
 ];
+
+/** The loop on a real bug, run in GitHub Actions (not on this deployment). See docs/real-bug-probe.md. */
+export const REAL_BUG = {
+  title: "Vaultwarden issue #1402: N+1 on GET /api/sync",
+  project: "Vaultwarden, an open-source Bitwarden server in Rust, at the commit before its maintainers' fix",
+  sqlBefore: "2,011",
+  sqlAfter: "15",
+  p95Before: "246 ms",
+  p95After: "64 ms",
+  improvement: "74%",
+  summary:
+    "Muse Spark 1.3 replaced the four queries per vault item with one batched query per relation, the approach of the maintainers' own fix, and every golden answer stayed identical. It did so in both of the last two runs (74% each); earlier runs ran out of turns or stopped at a smaller change.",
+  caveat: "Ran on a GitHub-hosted runner, not on this deployment. The seed has no organizations or attachments, so those branches of the patch were not exercised.",
+  runHref: `${repo}/actions/runs/41604035655`,
+  docHref: `${repo}/blob/claude/busy-cannon-5b5n40/docs/real-bug-probe.md`,
+};

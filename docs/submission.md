@@ -25,6 +25,12 @@
 - 모델 비교(같은 시나리오, Cloudflare): `muse-spark-1.3` 7회 모두 VERIFIED(2회는 두 번째 후보로), `muse-wonder-1.0` 4회 중 2회 VERIFIED. 11회 모두 같은 원인(N+1)과 같은 종류의 수정(JOIN 한 번)을 냈고, 패치 본문은 매번 달랐다. 개선율 87.7~90.1%. 표는 `docs/plan.md`.
 - 표현 주의: 시나리오 하나에서 Spark 7회, Wonder 4회를 돌린 결과다. "모델이 항상 찾는다"고 쓰지 않는다. Wonder의 실패 1회는 우리 쪽 출력 상한 때문이었다고 밝힌다.
 
+### 실제 버그 (Vaultwarden #1402, GitHub 러너)
+
+- 오픈소스 Rust 프로젝트 Vaultwarden의 실제 N+1(`GET /api/sync`, issue #1402)을 수정 직전 커밋 그대로 돌렸다. 모델의 일괄 재작성 패치가 요청당 SQL 2,011 → 15, p95 246 → 64 ms, golden 4/4 동일로 VERIFIED(74.2%). 관리자들의 공식 수정과 같은 방식이다.
+- 하네스를 고친 뒤 2회 모두 같은 결과. 그 전에는 턴 소진, 컴파일 실패, 작은 패치가 18%(REJECTED)·21%(VERIFIED)로 머신에 따라 갈림. 표는 `docs/real-bug-probe.md`.
+- 표현 주의: Cloudflare 배포본이 아니라 GitHub 러너에서 돌렸다. seed에 조직·첨부가 없어 그 분기는 검증되지 않았다. "모델이 실제 버그를 항상 고친다"고 쓰지 않는다(5회 중 2회, 하네스 수정 후 2회 중 2회).
+
 ### Cloudflare 배포본 (https://aiops-edge.yh9365.workers.dev, Replay provider)
 
 Cloudflare Containers, runner 4 vCPU, PostgreSQL 15.19, k6 v0.57.0, 100 rps, 20초 × 3쌍. 숫자는 run `01a19cf1-3ac6-7003-a2cb-1c4fa1c179d4` 기준입니다.
