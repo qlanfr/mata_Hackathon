@@ -385,6 +385,24 @@ CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러
 - **R2:** inline 한도를 4 KB로 내려 모든 보고서가 R2를 거치게 했다. run `01a19f42`의 아티팩트 4개가 R2에 저장됐고, 실행 스크립트가 API로 다시 읽어 왔다. 처음에는 적용되지 않았는데, Cloudflare가 2026-10-30부터 Durable Object 코드 갱신을 기본 5분 지연시켜 재시작된 컨테이너가 옛 환경변수를 받았기 때문이다. DO 갱신을 `immediate`로 바꾸고, 배포마다 스탬프를 넣어 aiopsd가 그 스탬프를 보고할 때까지 재시작하게 했다.
 - **cron:** Worker의 1분 cron이 aiopsd에 실제로 도착한다. 418초 run에 7회, 820초 run에 14회, 즉 1분에 1회다.
 
+### 실제 버그 확인 (11/3) — Vaultwarden #1402 N+1이 runner와 같은 조건에서 재현됨
+
+- 배경: 시나리오가 직접 만든 N+1 하나라는 약점. 공개 데이터셋을 조사했다(SWE-Perf, GSO, SWE-fficiency, Rails 성능 버그 연구, AIOps 장애 데이터셋 등). 대부분 Python 함수 실행 시간 벤치마크이거나, 코드 수정 없이 로그·지표만 있어 우리 하네스(HTTP + PostgreSQL + p95)에 바로 맞지 않았다.
+- 가장 잘 맞는 실제 버그: Vaultwarden(Rust Bitwarden 서버) issue #1402 "N+1 query problem on api/sync", 수정 PR #2429(2022-05-11 병합, 커밋 `3ca85028`).
+- 확인 방법: **Real bug probe** 워크플로가 수정 전 커밋과 수정 커밋을 Rust 1.60으로 빌드하고, 같은 금고(폴더 20, 항목 N개)를 API로 넣은 뒤 `/api/sync`를 10번 호출해 `pg_stat_statements`로 SQL 수를 셌다. DB는 같은 머신.
+- 결과([run 41592017741](https://github.com/qlanfr/mata_Hackathon/actions/runs/41592017741)):
+
+| 버전 | 항목 | sync당 SQL | sync 중앙값 |
+| --- | --- | --- | --- |
+| 수정 전 | 100 | 411 | 28.1 ms |
+| 수정 전 | 1000 | 4,011 | 249.6 ms |
+| 수정 후 | 100 | 17 | 6.8 ms |
+| 수정 후 | 1000 | 17 | 44.0 ms |
+
+- 항목 하나마다 쿼리 4개(첨부, 즐겨찾기, 폴더, 컬렉션)가 나간다. 수정본은 항목 수와 상관없이 17개다.
+- 처음 두 번은 빌드 단계에서 실패했다. Debian 11 저장소가 archive로 옮겨졌고, 저장소의 `rust-toolchain`이 "stable"이라 최신 컴파일러가 쓰였다. 기본 이미지의 libpq를 쓰고 `RUSTUP_TOOLCHAIN=1.60.0`으로 고정해 해결했다.
+- 아직 모델 루프는 돌리지 않았다. 필요한 하네스 변경은 `docs/real-bug-probe.md`에 적었다.
+
 ## 검증 방법
 
 - `cargo test -p aiops-core`: 상태 전이 표, 예산 초과 거절, policy(범위 밖 경로·symlink) 거절, Evaluator 규칙(중앙값·방향 일치·게이트) 단위 테스트.

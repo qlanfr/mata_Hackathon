@@ -72,6 +72,7 @@ A harness that says VERIFIED to everything would also produce the numbers above.
 ## Scope and limits
 
 - **One scenario.** The N+1 order list is a well-known problem. The point of the project is the verification loop, which knows nothing about N+1: the gates above are generic, and the model's patch is judged the same way whatever it does.
+- **A real bug is next.** Vaultwarden's documented N+1 on `/api/sync` (issue #1402, fixed in PR #2429) reproduces in a runner-like setup: 4,011 SQL statements per sync before the fix and 17 after, at 1000 vault items. The model loop has not been run on it yet. See [docs/real-bug-probe.md](docs/real-bug-probe.md).
 - **Target shape.** Today the runner targets a Rust HTTP service on PostgreSQL, built offline from dependencies baked into the image. Adding another service is a scenario file, a seed and a load script; see [docs/adding-a-service.md](docs/adding-a-service.md).
 - **Correctness means "same as before".** Golden answers come from the original service, so a candidate must preserve existing behaviour. Invariants check a few rules that hold whatever the code, which also catches some bugs the original already had.
 - **Fixed load.** Results hold for the scenario's load profile and data, not for every workload.
@@ -120,6 +121,7 @@ Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back record
 
 - [docs/architecture.md](docs/architecture.md): deployment, run states, one trial, the gates
 - [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
+- [docs/real-bug-probe.md](docs/real-bug-probe.md): a real N+1 bug (Vaultwarden #1402) reproduced in a runner-like setup
 - [docs/submission-text.md](docs/submission-text.md): project description for the submission
 - [docs/plan.md](docs/plan.md) (Korean): plan, daily log, every measured run and every bug found
 - [docs/mutation-results.md](docs/mutation-results.md): mutation testing results
