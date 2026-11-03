@@ -1,4 +1,4 @@
 # Minutes to keep the deployed containers awake (.github/workflows/wake.yml). Changing this file
 # on a push wakes aiopsd and the runner and keeps them awake that long.
-# 2026-11-03T04:26 before the demo recording
-30
+# 2026-11-03T04:27 before the demo recording
+40
