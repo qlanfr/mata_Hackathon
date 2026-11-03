@@ -15,3 +15,4 @@
 2026-11-03 deploy per-run model choice, R2 for reports, cron tick counter
 2026-11-03 deploy the output cap, immediate DO updates and the deploy stamp
 2026-11-03 deploy the stop-with-patch repair and the prompt note
+2026-11-03T06:29 deploy the result summary, model results and harness scorecard

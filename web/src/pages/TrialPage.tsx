@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { api, type Contract, type Evaluation, type LoadStats, type TrialReport } from "../api";
 import { DiffView } from "../components/DiffView";
+import { BeforeAfter, checksLine, p95s } from "../components/Highlights";
 import { PairsChart } from "../components/PairsChart";
 import { OutcomePill } from "../components/Status";
 import { duration, hash, ms, pct, short } from "../format";
@@ -28,6 +29,8 @@ export function TrialPage({ id }: { id: string }) {
         </div>
         <p className="lede">{trial.patch_summary}</p>
       </header>
+
+      {report && report.pairs.length > 0 && <ResultStrip report={report} median={med} />}
 
       <div className="grid-main">
         <div className="stack">
@@ -170,12 +173,30 @@ function Gates({ report, evaluation, contract }: { report: TrialReport | null; e
     value: report?.build ? (report.build.ok ? duration(report.build.duration_ms) : "failed") : "—",
     state: report?.build ? (report.build.ok ? "pass" : "fail") : "skip",
   });
+  const check = (c: { passed: number; total: number } | null | undefined): GateState =>
+    c ? (c.passed === c.total ? "pass" : "fail") : "skip";
   gates.push({
     name: "Golden responses",
     why: "Every case must be identical; the candidate cannot see or change them",
     value: report?.correctness ? `${report.correctness.passed}/${report.correctness.total}` : "—",
-    state: report?.correctness ? (report.correctness.passed === report.correctness.total ? "pass" : "fail") : "skip",
+    state: check(report?.correctness),
   });
+  if (report?.invariants) {
+    gates.push({
+      name: "Response invariants",
+      why: "Rules every response must follow, checked on the original too",
+      value: `${report.invariants.passed}/${report.invariants.total}`,
+      state: check(report.invariants),
+    });
+  }
+  if (report?.sample) {
+    gates.push({
+      name: "Sampled comparison",
+      why: "More requests answered by both services and compared",
+      value: `${report.sample.passed}/${report.sample.total}`,
+      state: check(report.sample),
+    });
+  }
   const noise = Math.max(evaluation?.aa_noise ?? 0, evaluation?.baseline_spread ?? 0);
   gates.push({
     name: "Measurement trust",
@@ -256,6 +277,40 @@ function Metrics({ report }: { report: TrialReport }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+/** The before/after numbers first: what changed, measured, and what stayed the same. */
+function ResultStrip({ report, median }: { report: TrialReport; median: number | null }) {
+  const p95 = p95s(report);
+  const fmt1 = (x: number | null | undefined) => (x == null ? "—" : x.toFixed(1));
+  return (
+    <section className="card result-strip" aria-label="Baseline and candidate">
+      <div className="tiles">
+        <div className="tile">
+          <span className="k">p95 latency</span>
+          <BeforeAfter from={ms(p95.baseline)} to={ms(p95.candidate)} />
+          <span className="s">
+            median change {median == null ? "—" : `${median >= 0 ? "−" : "+"}${pct(Math.abs(median))}`} over {report.pairs.length} pairs
+          </span>
+        </div>
+        <div className="tile">
+          <span className="k">SQL per request</span>
+          <BeforeAfter from={fmt1(report.baseline_logs?.avg_sql_count)} to={fmt1(report.candidate_logs?.avg_sql_count)} />
+          <span className="s">from the service's request logs</span>
+        </div>
+        <div className="tile">
+          <span className="k">DB time per request</span>
+          <BeforeAfter from={ms(report.baseline_logs?.avg_db_ms)} to={ms(report.candidate_logs?.avg_db_ms)} />
+          <span className="s">mean over all measured requests</span>
+        </div>
+        <div className="tile">
+          <span className="k">Responses unchanged</span>
+          <span className="v">{report.correctness ? `${report.correctness.passed}/${report.correctness.total}` : "—"}</span>
+          <span className="s">{checksLine(report)}</span>
+        </div>
       </div>
     </section>
   );

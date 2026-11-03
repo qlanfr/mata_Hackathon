@@ -227,3 +227,25 @@ dialog form { display: grid; gap: 12px; }
 input[type="password"], input[type="text"] { font: 14px var(--mono); padding: 9px 11px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--fg); width: 100%; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 footer.note { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+
+/* Runs page highlights: latest verified change, model results, harness scorecard */
+.highlight { border-color: var(--ok); box-shadow: inset 4px 0 0 var(--ok); }
+.row-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.grid-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 960px) { .grid-two { grid-template-columns: minmax(0, 1fr); } }
+.tiles.wide { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.tile .v.ba { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 24px; }
+.tile .v.ba .from { color: var(--muted); font-weight: 500; font-size: 18px; }
+.tile .v.ba .to-arrow { color: var(--muted); font-weight: 400; font-size: 16px; }
+.tile .v.ba .unit { color: var(--muted); font-size: 13px; font-weight: 500; }
+.ok-text { color: var(--ok); font-weight: 600; }
+.scores { display: grid; gap: 14px; }
+.score { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.score:last-child { border-bottom: 0; padding-bottom: 0; }
+.score .k { font-weight: 600; font-size: 14px; }
+.score .v { grid-row: span 2; font: 700 22px/1.1 var(--mono); font-variant-numeric: tabular-nums; color: var(--ok); text-align: right; white-space: nowrap; }
+.score .s { font-size: 13px; color: var(--muted); }
+.score a { grid-column: 1 / -1; }
+details summary { cursor: pointer; color: var(--ctl); }
+details .reasons { margin-top: 10px; }
+.result-strip .tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }

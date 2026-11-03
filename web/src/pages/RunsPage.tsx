@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, ApiError, TERMINAL } from "../api";
+import { HarnessScorecard, LatestVerified, ModelResults } from "../components/Highlights";
 import { ProviderBadge, StatePill } from "../components/Status";
 import { ago, duration } from "../format";
 import { useLoad } from "../hooks";
@@ -38,11 +39,20 @@ export function RunsPage({ askToken }: { askToken: () => Promise<boolean> }) {
           </button>
         </div>
         <p className="lede">
-          Each run measures the service, lets the observer and experimenter roles propose one change at a time, and builds and
-          measures every change in an isolated runner. Only the Rust evaluator decides whether a change is accepted.
+          A Meta model reads the evidence and proposes one change at a time. A Rust harness builds each change in an isolated
+          runner with no internet, checks that every response is unchanged, and measures p95 against the unchanged service. Only
+          the Rust evaluator decides whether a change is accepted.
         </p>
         {startError && <p className="error">Could not start the run: {startError}</p>}
       </header>
+
+      {runs.length > 0 && <LatestVerified runs={runs} />}
+      {runs.length > 0 && (
+        <div className="grid-two">
+          <ModelResults runs={runs} />
+          <HarnessScorecard />
+        </div>
+      )}
 
       <section className="card" aria-labelledby="runs-title">
         <div className="card-head">

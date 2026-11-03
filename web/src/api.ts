@@ -91,6 +91,9 @@ export interface TrialReport {
   build: { ok: boolean; cached: boolean; duration_ms: number; log_sha256: string; log_tail: string } | null;
   correctness: Correctness | null;
   baseline_correctness: Correctness | null;
+  invariants?: Correctness | null;
+  baseline_invariants?: Correctness | null;
+  sample?: Correctness | null;
   pairs: Pair[];
   candidate_crashed: string | null;
   baseline_logs: LogSummary | null;
