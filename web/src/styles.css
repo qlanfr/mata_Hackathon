@@ -249,3 +249,9 @@ footer.note { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(
 details summary { cursor: pointer; color: var(--ctl); }
 details .reasons { margin-top: 10px; }
 .result-strip .tiles { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+
+/* Vulnerability-fix trials: attack table */
+table.attacks td.ok { color: var(--ok); font-weight: 500; white-space: nowrap; }
+table.attacks td.bad { color: var(--bad); font-weight: 500; white-space: nowrap; }
+.attack-path { word-break: break-all; }
+.tag { display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: 999px; font: 500 11px/1.4 var(--mono); color: var(--warn); background: var(--warn-tint); }

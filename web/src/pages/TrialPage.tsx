@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { api, type Contract, type Evaluation, type LoadStats, type TrialReport } from "../api";
+import { api, exploited, type Contract, type Evaluation, type ExploitResult, type LoadStats, type TrialReport } from "../api";
 import { DiffView } from "../components/DiffView";
 import { BeforeAfter, checksLine, p95s } from "../components/Highlights";
 import { PairsChart } from "../components/PairsChart";
@@ -16,6 +16,7 @@ export function TrialPage({ id }: { id: string }) {
   const ev = trial.evaluation;
   const med = ev?.median_improvement ?? null;
   const tone = trial.outcome === "VERIFIED" ? "ok" : trial.outcome === "INCONCLUSIVE" ? "warn" : "bad";
+  const sec = report?.security ?? null;
 
   return (
     <>
@@ -39,21 +40,34 @@ export function TrialPage({ id }: { id: string }) {
               <h2 id="verdict-title">Verdict</h2>
               <span className="hint">decided by the Rust evaluator, not the model</span>
             </div>
-            <div className="headline">
-              <span className={`big ${med == null ? "" : tone}`}>{med == null ? "—" : `${med >= 0 ? "−" : "+"}${pct(Math.abs(med))}`}</span>
-              <span className="muted">median p95 change · target −{pct(contract.min_improvement, 0)} in every pair</span>
-            </div>
+            {sec ? (
+              <div className="headline">
+                <span className={`big ${tone}`}>
+                  {sec.candidate.filter((e) => !exploited(e)).length}/{sec.candidate.length}
+                </span>
+                <span className="muted">attacks blocked · every attack must fail, including {sec.candidate.filter((e) => e.held_out).length} the model never saw</span>
+              </div>
+            ) : (
+              <div className="headline">
+                <span className={`big ${med == null ? "" : tone}`}>{med == null ? "—" : `${med >= 0 ? "−" : "+"}${pct(Math.abs(med))}`}</span>
+                <span className="muted">median p95 change · target −{pct(contract.min_improvement, 0)} in every pair</span>
+              </div>
+            )}
             {ev?.reasons?.[0] && <p>{ev.reasons[0]}</p>}
             <Gates report={report} evaluation={ev} contract={contract} />
           </section>
 
-          <section className="card" aria-labelledby="chart-title">
-            <div className="card-head">
-              <h2 id="chart-title">p95 latency per pair</h2>
-              <span className="hint">{report?.pairs[0] ? `${report.pairs[0].baseline.rate} req/s for ${report.pairs[0].baseline.duration_s}s per run` : ""}</span>
-            </div>
-            <PairsChart pairs={report?.pairs ?? []} />
-          </section>
+          {sec ? (
+            <Attacks baseline={sec.baseline} candidate={sec.candidate} />
+          ) : (
+            <section className="card" aria-labelledby="chart-title">
+              <div className="card-head">
+                <h2 id="chart-title">p95 latency per pair</h2>
+                <span className="hint">{report?.pairs[0] ? `${report.pairs[0].baseline.rate} req/s for ${report.pairs[0].baseline.duration_s}s per run` : ""}</span>
+              </div>
+              <PairsChart pairs={report?.pairs ?? []} />
+            </section>
+          )}
 
           <section className="card" aria-labelledby="diff-title">
             <div className="card-head">
@@ -92,7 +106,7 @@ export function TrialPage({ id }: { id: string }) {
             </div>
           </section>
 
-          {report && <Metrics report={report} />}
+          {report && !sec && <Metrics report={report} />}
 
           {report?.correctness && (
             <section className="card" aria-labelledby="golden-title">
@@ -157,7 +171,7 @@ export function TrialPage({ id }: { id: string }) {
 type GateState = "pass" | "fail" | "hold" | "skip";
 
 function Gates({ report, evaluation, contract }: { report: TrialReport | null; evaluation: Evaluation | null; contract: Contract }) {
-  const gates: { name: string; why: ReactNode; value: string; state: GateState }[] = [];
+  const gates: Gate[] = [];
   const pairs = report?.pairs ?? [];
   const dropped = pairs.reduce((n, p) => n + p.baseline.dropped + p.candidate.dropped, 0);
   const errors = (s: LoadStats) => s.bad_status + s.timeouts + s.net_errors;
@@ -189,13 +203,38 @@ function Gates({ report, evaluation, contract }: { report: TrialReport | null; e
       state: check(report.invariants),
     });
   }
-  if (report?.sample) {
+  if (report?.sample && report.sample.total > 0) {
     gates.push({
       name: "Sampled comparison",
       why: "More requests answered by both services and compared",
       value: `${report.sample.passed}/${report.sample.total}`,
       state: check(report.sample),
     });
+  }
+  const sec = report?.security;
+  if (sec) {
+    const worked = sec.baseline.filter(exploited).length;
+    const open = sec.candidate.filter(exploited).length;
+    const errored = sec.candidate.filter((e) => e.status === 0 || e.status >= 500).length;
+    gates.push({
+      name: "Attacks reproduce on the original",
+      why: "Otherwise the scenario cannot judge a fix",
+      value: `${worked}/${sec.baseline.length}`,
+      state: worked === sec.baseline.length ? "pass" : "fail",
+    });
+    gates.push({
+      name: "Attacks blocked",
+      why: "Reported and held-out attacks alike; none may return the protected data",
+      value: `${sec.candidate.length - open}/${sec.candidate.length}`,
+      state: open ? "fail" : "pass",
+    });
+    gates.push({
+      name: "Refused cleanly",
+      why: "An attack answered with a server error is not a fix",
+      value: errored ? `${errored} server errors` : "no server errors",
+      state: errored ? "fail" : "pass",
+    });
+    return <GateList gates={gates} />;
   }
   const noise = Math.max(evaluation?.aa_noise ?? 0, evaluation?.baseline_spread ?? 0);
   gates.push({
@@ -217,6 +256,12 @@ function Gates({ report, evaluation, contract }: { report: TrialReport | null; e
     state: !improvements.length ? "skip" : allBetter && (evaluation?.median_improvement ?? 0) >= contract.min_improvement ? "pass" : allBetter ? "fail" : "hold",
   });
 
+  return <GateList gates={gates} />;
+}
+
+type Gate = { name: string; why: ReactNode; value: string; state: GateState };
+
+function GateList({ gates }: { gates: Gate[] }) {
   const mark: Record<GateState, string> = { pass: "✓", fail: "✗", hold: "?", skip: "–" };
   return (
     <ol className="gates">
@@ -311,6 +356,49 @@ function ResultStrip({ report, median }: { report: TrialReport; median: number |
           <span className="v">{report.correctness ? `${report.correctness.passed}/${report.correctness.total}` : "—"}</span>
           <span className="s">{checksLine(report)}</span>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/** Every attack request with its answer from the original and from the candidate. */
+function Attacks({ baseline, candidate }: { baseline: ExploitResult[]; candidate: ExploitResult[] }) {
+  const answer = (e: ExploitResult | undefined) =>
+    !e ? "—" : exploited(e) ? `${e.status} · leaked` : e.status === 0 ? "no answer" : e.status >= 500 ? `${e.status} · server error` : `${e.status} · blocked`;
+  const cls = (e: ExploitResult | undefined) => (!e ? "" : exploited(e) || e.status === 0 || e.status >= 500 ? "bad" : "ok");
+  return (
+    <section className="card" aria-labelledby="attacks-title">
+      <div className="card-head">
+        <h2 id="attacks-title">Attack requests</h2>
+        <span className="hint">held-out attacks are never shown to the model</span>
+      </div>
+      <div className="table-wrap">
+        <table className="data attacks">
+          <thead>
+            <tr>
+              <th>Attack</th>
+              <th>Original</th>
+              <th>Candidate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {candidate.map((c) => {
+              const b = baseline.find((x) => x.name === c.name);
+              return (
+                <tr key={c.name}>
+                  <td>
+                    <span className="mono">{c.name}</span>
+                    {c.held_out && <span className="tag">held out</span>}
+                    <br />
+                    <span className="muted small mono attack-path">{decodeURIComponent(c.path)}</span>
+                  </td>
+                  <td className={cls(b) === "ok" ? "" : "bad"}>{answer(b)}</td>
+                  <td className={cls(c)}>{answer(c)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </section>
   );

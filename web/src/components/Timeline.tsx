@@ -92,6 +92,17 @@ function render(e: RunEvent): Rendered | null {
     case "job_lost":
       return { actor: "runner", tone: "problem", who: "runner", title: p.retrying ? "Runner job lost; retrying once" : "Runner job lost", detail: p.reason };
     case "baseline_measured":
+      if (p.exploits?.length) {
+        const worked = p.exploits.filter((x: { worked: boolean }) => x.worked).length;
+        const held = p.exploits.filter((x: { held_out: boolean }) => x.held_out).length;
+        return {
+          actor: "runner",
+          tone: worked === p.exploits.length ? undefined : "problem",
+          who: "runner",
+          title: `Attacks reproduced on the original: ${worked} of ${p.exploits.length}`,
+          detail: `${held} of them held out from the model · golden ${p.correctness?.passed}/${p.correctness?.total} · no load measured for a vulnerability fix`,
+        };
+      }
       return {
         actor: "runner",
         who: "runner",

@@ -81,6 +81,10 @@ export interface Correctness { total: number; passed: number; cases: CaseResult[
 export interface LogSummary { requests: number; avg_sql_count: number; max_sql_count: number; avg_db_ms: number; avg_latency_ms: number }
 export interface Env { runner_boot_id: string; hostname: string; cpus: number; rustc: string; postgres: string; k6: string }
 
+export interface ExploitResult { name: string; path: string; held_out: boolean; status: number; leaked: boolean; excerpt: string }
+/** The attack worked: a successful answer carrying data the caller must not get. */
+export const exploited = (e: ExploitResult) => e.status >= 200 && e.status < 300 && e.leaked;
+
 export interface TrialReport {
   trial_id: string;
   scenario_id: string;
@@ -95,6 +99,8 @@ export interface TrialReport {
   baseline_invariants?: Correctness | null;
   sample?: Correctness | null;
   pairs: Pair[];
+  /** Vulnerability-fix trials: every attack, sent to both services. */
+  security?: { baseline: ExploitResult[]; candidate: ExploitResult[] } | null;
   candidate_crashed: string | null;
   baseline_logs: LogSummary | null;
   candidate_logs: LogSummary | null;
@@ -163,6 +169,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  info: () => request<{ scenario: string; provider: string }>("/api/v1/info"),
   runs: () => request<{ runs: Run[] }>("/api/v1/runs"),
   run: (id: string) => request<{ run: Run; trials: Trial[]; jobs: Job[]; contract: Contract }>(`/api/v1/runs/${id}`),
   events: (id: string, afterSeq: number) => request<{ events: RunEvent[] }>(`/api/v1/runs/${id}/events?after_seq=${afterSeq}`),

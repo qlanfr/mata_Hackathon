@@ -25,7 +25,7 @@ A Meta model (Muse Spark 1.3, through the Meta Model API) reads operational evid
 
 | Gate | Fails when | Verdict |
 | --- | --- | --- |
-| Policy | a protected or out-of-scope file, or a search text that does not match exactly once | POLICY_REJECTED, nothing runs |
+| Policy | a protected or out-of-scope file, a search text that does not match exactly once, or code the security gate refuses | POLICY_REJECTED, nothing runs |
 | Build | the candidate does not compile | EXECUTION_ERROR |
 | Correctness | any golden case, invariant or sampled response differs, or the candidate crashes | REJECTED |
 | Trust in the measurement | baseline pairs vary more than 15%, or the baseline cannot keep up with the load | INCONCLUSIVE, measured once more |
@@ -86,6 +86,22 @@ A harness that says VERIFIED to everything would also produce the numbers above.
   - On a cold runner, cargo skipped the candidate build and the "candidate" was the original binary. This could only hide improvements, never invent one.
   - During a rollout, an old and a new orchestrator advanced the same run. A D1 lease and a compare-and-swap guard now prevent it.
 
+## Security: a gate on every patch, and vulnerability fixes
+
+- **Security gate.** Every patch is checked before anything is built. A patch that adds any of the following is refused (POLICY_REJECTED):
+  - `unsafe` code;
+  - SQL built with `format!` or concatenation;
+  - a process, a network connection, a secret read or a file write;
+  - an edit to security files (auth, crypto, sessions, tokens).
+
+  Four trap patches check this in CI.
+- **Vulnerability-fix mode.** The model fixes a reported vulnerability, and the harness accepts the fix only if three things hold:
+  - every attack request worked on the original and fails on the fix;
+  - this includes held-out attacks the model never sees, so filtering the reported strings fails;
+  - every golden response is unchanged.
+
+  On a SQL injection in product search, `muse-spark-1.3` wrote a bind-parameter fix that blocked 4 of 4 attacks with golden 12/12, VERIFIED on the first candidate. See [docs/vulnerability-fix.md](docs/vulnerability-fix.md).
+
 ## Use it from a terminal or an AI agent
 
 `aiops` is a Rust CLI and MCP server for the same API. A person, a CI job or a monitoring webhook can start an experiment and get the verdict as an exit code; an AI client such as Claude Code or Cursor can do it with tool calls (`start_experiment`, `wait_for_run`, `get_trial`).
@@ -103,6 +119,17 @@ claude mcp add aiops -e AIOPS_ADMIN_TOKEN="$AIOPS_ADMIN_TOKEN" -- aiops mcp
 ```
 
 Setup, every command and tool, and what was checked: [docs/cli-and-mcp.md](docs/cli-and-mcp.md).
+
+## Run it unattended
+
+The deployment runs on its own:
+- **Schedule.** One run a day at 17:00 UTC.
+- **Noisy machines.** A measurement too noisy to judge is tried again 20, 40 and 60 minutes later instead of failing.
+- **Daily limits.** At most 30 runs and 1.5 million model tokens per UTC day. Past the token budget, a run stops before calling the model.
+- **Notifications.** Every finished run is posted to a Slack, Discord or JSON webhook.
+- **Pull requests.** A VERIFIED patch becomes a pull request with its evidence: `aiops apply` checks that the patch is the one that was measured and applies it with the harness's own policy and security gate. The **PR from a verified run** workflow opens the pull request only when asked.
+
+Settings, what each one does, and what was checked: [docs/operations.md](docs/operations.md).
 
 ## Scope and limits
 
@@ -157,6 +184,8 @@ Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back record
 
 - [docs/architecture.md](docs/architecture.md): deployment, run states, one trial, the gates
 - [docs/cli-and-mcp.md](docs/cli-and-mcp.md): the `aiops` command line and MCP server
+- [docs/operations.md](docs/operations.md): running unattended: schedule, retries on noise, daily limits, notifications, pull requests
+- [docs/vulnerability-fix.md](docs/vulnerability-fix.md): vulnerability-fix mode: attacks, held-out variants, the SQL injection scenario and its runs
 - [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
 - [docs/real-bug-probe.md](docs/real-bug-probe.md): the loop on a real bug (Vaultwarden #1402): reproduction, every run, and the harness changes it led to
 - [docs/submission-text.md](docs/submission-text.md): project description for the submission

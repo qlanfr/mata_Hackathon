@@ -6,7 +6,8 @@ name: Vulnerability fix run
 # reported and held-out attack blocked and every golden response unchanged. If a fix is VERIFIED,
 # `aiops apply` prepares it as a pull request description (not opened).
 # Runs on demand or when a push changes .github/security-run-request; the last non-comment line of
-# that file is the Meta model to use. Repository secret: META_API_KEY.
+# that file lists the Meta models to use, one run each, in order (a model may repeat).
+# Repository secret: META_API_KEY.
 on:
   workflow_dispatch:
   push:
@@ -46,40 +47,46 @@ jobs:
         env:
           META_API_KEY: ${{ secrets.META_API_KEY }}
         run: |
-          model=$(grep -v '^\s*#' .github/security-run-request | grep -v '^\s*$' | tail -1)
-          model=${model:-muse-spark-1.3}
-          echo "META_MODEL=$model" >> "$GITHUB_ENV"
+          models=$(grep -v '^\s*#' .github/security-run-request | grep -v '^\s*$' | tail -1)
+          models=${models:-muse-spark-1.3}
+          echo "MODELS=$models" >> "$GITHUB_ENV"
           mkdir -p .work
           nohup ./target/release/aiops-runner serve --listen 127.0.0.1:18080 > .work/runner.log 2>&1 &
-          META_MODEL="$model" AIOPS_DB=sqlite:.work/control.db AIOPS_ARTIFACTS=fs:.work/artifacts \
+          META_MODEL="${models%% *}" AIOPS_DB=sqlite:.work/control.db AIOPS_ARTIFACTS=fs:.work/artifacts \
             nohup ./target/release/aiopsd --listen 127.0.0.1:18090 --runner-url http://127.0.0.1:18080 > .work/aiopsd.log 2>&1 &
           for _ in $(seq 60); do curl -fsS 127.0.0.1:18090/api/v1/info && break; sleep 2; done; echo
-      - name: Run the loop
+      - name: Run the loop, once per model
         env:
           AIOPS_URL: http://127.0.0.1:18090
         run: |
           provider=$(./target/release/aiops --json info | python3 -c 'import json,sys; print(json.load(sys.stdin)["provider"])')
-          test "$provider" = "meta:$META_MODEL" || { echo "::error::provider is $provider, expected meta:$META_MODEL"; exit 1; }
-          status=0
-          ./target/release/aiops run --wait --timeout-s 3000 2>&1 | tee .work/run.txt || status=$?
-          run_id=$(grep -oE 'run [0-9a-f-]{36}' .work/run.txt | head -1 | cut -d' ' -f2)
-          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
-          ./target/release/aiops --json status "$run_id" > .work/status.json
-          { echo '```'; ./target/release/aiops status "$run_id"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
-      - name: Trials and pull request description
-        if: always() && env.RUN_ID != ''
+          case "$provider" in meta:*) ;; *) echo "::error::provider is $provider, expected a Meta model"; exit 1 ;; esac
+          : > .work/runs.txt
+          for model in $MODELS; do
+            echo "== $model"
+            ./target/release/aiops run --model "$model" --wait --timeout-s 2400 2>&1 | tee .work/run.txt || true
+            run_id=$(grep -oE 'run [0-9a-f-]{36}' .work/run.txt | head -1 | cut -d' ' -f2)
+            [ -n "$run_id" ] && echo "$run_id $model" >> .work/runs.txt
+            { echo "### $model"; echo '```'; ./target/release/aiops status "$run_id"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          done
+          cat .work/runs.txt
+      - name: Trials and pull request descriptions
+        if: always()
         env:
           AIOPS_URL: http://127.0.0.1:18090
         run: |
-          for t in $(python3 -c 'import json; print(" ".join(t["trial_id"] for t in json.load(open(".work/status.json"))["trials"]))'); do
-            { echo; echo "### Trial $t"; echo '```'; ./target/release/aiops trial "$t" --diff; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
-            if [ "$(./target/release/aiops --json trial "$t" | python3 -c 'import json,sys; print(json.load(sys.stdin)["outcome"])')" = VERIFIED ]; then
-              ./target/release/aiops apply "$t" --body-file .work/pr-body.md
-              { echo; echo "### Pull request description (not opened)"; cat .work/pr-body.md; } >> "$GITHUB_STEP_SUMMARY"
-              git diff > .work/verified.patch
-            fi
-          done
+          while read -r run_id model; do
+            ./target/release/aiops --json status "$run_id" > ".work/status-$run_id.json"
+            for t in $(python3 -c 'import json,sys; print(" ".join(t["trial_id"] for t in json.load(open(sys.argv[1]))["trials"]))' ".work/status-$run_id.json"); do
+              { echo; echo "### $model · trial $t"; echo '```'; ./target/release/aiops trial "$t" --diff; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+              if [ "$(./target/release/aiops --json trial "$t" | python3 -c 'import json,sys; print(json.load(sys.stdin)["outcome"])')" = VERIFIED ]; then
+                ./target/release/aiops apply "$t" --body-file ".work/pr-body-$t.md"
+                { echo; echo "#### Pull request description (not opened)"; cat ".work/pr-body-$t.md"; } >> "$GITHUB_STEP_SUMMARY"
+                git diff > ".work/verified-$t.patch"
+                git checkout -- fixtures
+              fi
+            done
+          done < .work/runs.txt
       - name: Logs
         if: always()
         run: |

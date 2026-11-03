@@ -47,13 +47,14 @@ aiops alert orders-api:p95-high --service orders-api --summary "p95 above 20 ms"
 
 | Command | What it does |
 | --- | --- |
-| `info` | The deployment: scenario, model provider, version |
+| `info` | The deployment: scenario, model provider, version, schedule and daily limits |
 | `runs [--limit N]` | Recent runs, newest first |
 | `run [--goal G] [--model M] [--wait]` | Starts an experiment; with `--wait`, prints each state change and then the verdict |
 | `status <run_id>` | Every trial with its verdict and reason, and the measurements of the verified one |
 | `trial <trial_id> [--diff]` | One trial: reasons, per-pair p95 change, p95 and SQL per request before and after, correctness checks, the patch |
 | `alert <fingerprint>` | Reports a symptom from monitoring. Starts a run, or joins the active run with the same fingerprint |
 | `cancel <run_id>` | Stops a run; it becomes CANCELLED once the runner confirms its processes are gone |
+| `apply <trial_id>` | Puts a VERIFIED patch into this checkout with the harness's own path policy and security gate, after checking it is the patch that was measured, and writes a pull request description (`--body-file`). See [operations.md](operations.md) |
 | `mcp` | Serves the MCP tools over stdio |
 
 Every command takes `--json`. `run --wait` exits with **0** when a change was VERIFIED, **2** when the run finished without one, and **3** when the wait timed out, so a CI job or a cron entry can act on the result.
@@ -111,4 +112,4 @@ Then ask, for example: "The order list API is slow. Start an experiment and tell
 ## Not built yet
 
 - **One tenant.** One deployment, one scenario, one admin token. Several teams or services would need accounts, a scenario per service and isolation between them.
-- **No repository connection.** The service's source is part of the deployment. Pointing the tool at a team's own repository, and opening a pull request with the verified patch, are not built.
+- **No repository connection.** The service's source is part of the deployment; pointing the tool at a team's own repository is not built. A verified patch can be turned into a pull request on this repository (`aiops apply` and the **PR from a verified run** workflow, see [operations.md](operations.md)).

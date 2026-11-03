@@ -152,6 +152,17 @@ pub fn run_text(s: &Value) -> String {
         s["provider"].as_str().unwrap_or("-")
     )];
     out.push(format!("  {}", s["url"].as_str().unwrap_or_default()));
+    let u = &s["usage"];
+    if u["model_turns"].as_u64().unwrap_or(0) > 0 {
+        out.push(format!(
+            "  model: {} turns, {} tool calls, {} candidates, {} input / {} output tokens",
+            u["model_turns"],
+            u["tool_calls"],
+            u["candidates"],
+            u["input_tokens"],
+            u["output_tokens"]
+        ));
+    }
     for t in s["trials"].as_array().into_iter().flatten() {
         out.push(format!(
             "  trial {}: {:<16} {:>7}  {}",

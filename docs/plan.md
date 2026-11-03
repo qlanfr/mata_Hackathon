@@ -453,7 +453,91 @@ CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러
 - 배포(Deploy edge run 41642839780) 자체는 성공했고 기능 변화는 없다(CLI 크레이트가 워크스페이스에 추가됐을 뿐).
 - 하네스는 잡음 속에서 잘못된 VERIFIED를 하나도 내지 않았다. 90% 개선도 기준선이 흔들리면 보류했다.
 - 원인은 확인하지 못했다. runner 인스턴스가 바뀐 뒤(boot id 변경)에도 느렸으므로 한 인스턴스의 누적 상태보다는 호스트 쪽 경합으로 추정한다(가정).
-- 24시간 운영이라면 이런 때 FAILED로 끝내지 말고 나중에 자동 재시도해야 한다(미구현).
+- 24시간 운영이라면 이런 때 FAILED로 끝내지 말고 나중에 자동 재시도해야 한다. → 아래 "24시간 운영"에서 구현했다.
+
+### 보안 관문 (11/3) — 위험한 코드를 더하는 패치는 실행 전에 거절
+
+- 모든 패치 편집에 보안 관문을 적용한다(`crates/aiops-core/src/security.rs`).
+  - 규칙은 패치가 **더하는** 코드에만 걸린다. 기준은 패턴이 replace에서 search보다 더 많이 나오는지다.
+  - 주석은 무시한다.
+- 거절 대상:
+  - `unsafe`, 프로세스 실행, 새 네트워크 연결, 환경변수·비밀 읽기, 파일 쓰기.
+  - `format!`·`push_str`·`concat!`로 만든 SQL.
+  - 이름이 보안 코드를 가리키는 파일(auth, crypto, session, token 등)의 수정.
+- 판정은 POLICY_REJECTED이고, 이유는 "security gate (...)"로 시작한다.
+- 함정 패치 4개를 추가했다: SQL을 `format!`으로 만들기, unsafe 코드, 비밀 읽기, 네트워크 호출.
+  - CI([Harness suite run 41649944140](https://github.com/qlanfr/mata_Hackathon/actions/runs/41649944140))에서 19개 후보가 모두 기대 판정과 이유를 받았다.
+  - 기존 함정과 정상 패치는 보안 관문에 걸리지 않았다. 단위 테스트로도 확인한다.
+
+### 24시간 운영 (11/3) — 예약 실행, 잡음 시 나중에 재시도, 하루 상한, 알림, PR
+
+| 기능 | 구현 | 배포 설정 |
+| --- | --- | --- |
+| 예약 실행 | 하루 한 번, 정한 UTC 시각 이후 첫 tick에서 run 생성(trigger `schedule`). 같은 날 두 번째는 만들지 않음 | 17:00 UTC(한국 02:00) |
+| 잡음 시 재시도 | A/A 노이즈 초과 또는 재측정 후에도 INCONCLUSIVE면 job에 `not_before`를 두고 나중에 같은 측정을 다시 함. 모델은 다시 부르지 않음. 이벤트 `env_retry` | 3회, 20·40·60분 뒤 |
+| 하루 run 상한 | UTC 하루 생성 run 수. 넘으면 `POST /runs`가 429. 진행 중 run에 붙는 알림은 허용 | 30 |
+| 하루 토큰 상한 | UTC 하루 모델 토큰 합. 넘으면 run이 모델 호출 전에 EXHAUSTED | 150만 |
+| 알림 | run 종료 시 웹훅. Slack은 `text`, Discord는 `content`, 그 외는 JSON 이벤트. 결과는 `notified`/`notify_failed` 이벤트 | `NOTIFY_WEBHOOK_URL` secret(아직 없음) |
+| PR 생성 | `aiops apply <trial>`: VERIFIED이고 측정한 패치와 해시가 같을 때만, 하네스와 같은 정책·보안 관문으로 적용하고 PR 설명(증거 포함)을 씀. "PR from a verified run" 워크플로가 빌드까지 하고, 요청할 때만 PR을 엶 | 기본은 드라이런 |
+
+로컬 확인(Replay, SQLite):
+
+| 기능 | 결과 |
+| --- | --- |
+| 하루 run 상한 | 상한 1에서 두 번째 run이 429 |
+| 하루 토큰 상한 | 상한 1,000, 오늘 2,200 사용 → run이 모델 호출 0회로 EXHAUSTED("daily model budget of 1000 tokens is spent") |
+| 재시도 | `max_noise` 0.001 시나리오 복사본에서 `env_retry` → 1분 뒤 재측정 → 재시도 소진 후 FAILED, 웹훅이 JSON 이벤트 수신(200) |
+| 예약 | 다음 분으로 설정 → tick이 run 생성, VERIFIED 87.5%, Slack 형식 텍스트 수신, 같은 날 중복 없음 |
+| `aiops apply` | VERIFIED 패치 적용과 PR 설명 작성. 두 번째 적용은 "matched 0 times"로 거부, REJECTED trial도 거부 |
+
+배포본 확인:
+- [Deploy edge run 41654525427](https://github.com/qlanfr/mata_Hackathon/actions/runs/41654525427): 마이그레이션 0004 적용. 확인 run(`muse-spark-1.3`)은 VERIFIED 88.3%, A/A 6.7%, 422초.
+- PR 워크플로 드라이런 [run 41655122786](https://github.com/qlanfr/mata_Hackathon/actions/runs/41655122786): 배포본에서 가장 최근 VERIFIED run을 골라 패치를 적용했고, 패치된 서비스가 빌드됐다.
+  - 결과 파일 업로드는 숨김 폴더라 빠졌다. 고쳤다.
+
+배포본에서 아직 보지 못한 것:
+- 예약 run: 오늘 17:00 UTC가 첫 실행이다.
+- 잡음 재시도.
+- 알림: 웹훅 secret이 없다.
+- 실제로 열린 PR.
+
+### 취약점 수정 모드 (11/3) — 공격이 원본에서 통하고 수정본에서 막혀야 VERIFIED
+
+- 시나리오에 `[security]`를 둔다.
+  - `advisory`: 모델이 읽는 취약점 보고서.
+  - `exploits`: 모델에게 보여 주는 공격.
+  - `held_out`: 모델에게 숨기는 공격.
+  - 각 공격에는 "응답에 나오면 안 되는 문자열(leak)"이 있다.
+- 판정(평가기, `security_verdict`): 정확성 관문(golden)을 통과한 뒤 다음 순서로 본다.
+  1. 모든 공격이 원본에서 통해야 한다. 아니면 고칠 것이 없으므로 EXECUTION_ERROR.
+  2. 수정본에서 통하는 공격이 하나라도 있으면 REJECTED. 숨긴 공격이면 이름을 말하지 않는다(이유가 모델에게 돌아가므로).
+  3. 공격에 500(서버 오류)으로 답하면 REJECTED. 깔끔한 거절이 아니다.
+  4. 모두 통과하면 VERIFIED. 부하 측정은 하지 않는다.
+- 시나리오 `sqli-search`: 주문 API에 상품 검색(`GET /products/search?q=`)을 추가했고, SQL을 `format!`으로 만든다.
+  - 보여 주는 공격: OR 항상 참, UNION으로 사용자 이메일 읽기.
+  - 숨긴 공격: 공백 없는 OR, 대소문자·주석을 섞은 UNION.
+  - 시나리오를 쓰기 전에 네 공격 모두 실제 PostgreSQL에서 통하는 것을 확인했다: OR은 상품 20개, UNION은 이메일 100개.
+  - golden 12개에는 `%`·`_` 와일드카드, 빈 검색, 길이 제한, 주문 목록 2개가 들어 있다.
+- 손으로 쓴 확인용 패치 5개(모델 출력 아님), 로컬에서 모두 기대 판정:
+
+| 패치 | 판정 | 이유 |
+| --- | --- | --- |
+| bind 파라미터 | VERIFIED | 공격 4/4 차단, 응답 동일 |
+| 보고된 문자열(' OR ', UNION)만 거름 | REJECTED | 숨긴 공격 2/2가 여전히 통함 |
+| 따옴표가 있으면 DB 오류 | REJECTED | 공격에 500으로 응답 |
+| bind하면서 `%`·`_`까지 이스케이프 | REJECTED | golden `search-percent`, `search-underscore` 불일치 |
+| 변수 이름만 바꿈 | REJECTED | 보고된 공격이 그대로 통함 |
+
+- 한계(확인함): 따옴표를 두 번 쓰는(`'` → `''`) 수정도 네 공격을 모두 막아 VERIFIED가 된다(로컬에서 실행해 확인).
+  - bind 파라미터가 더 나은 수정이지만, 하네스는 동작을 판정할 뿐 코드 리뷰를 대신하지 않는다.
+- Meta 모델 실행(GitHub 러너, "Vulnerability fix run" 워크플로):
+  - [run 41658304356](https://github.com/qlanfr/mata_Hackathon/actions/runs/41658304356), `muse-spark-1.3`, run `01a1a1e9`: 후보 1개로 **VERIFIED**(공격 4/4 차단, golden 12/12), 140초.
+  - 모델의 패치: `ILIKE '%' || $1 || '%'`에 `.bind(query)`. 와일드카드 의미를 유지하는 정확한 수정이다.
+  - `aiops apply`가 PR 설명을 만들었다(PR은 열지 않음).
+- 로컬 Replay(스크립트, 모델 출력 아님): 일부러 넣은 단순 필터가 숨긴 공격에 걸려 REJECTED됐고, 이어진 bind 수정은 VERIFIED였다.
+- 버그 하나를 고쳤다: 함정 실행용 작업 폴더 경로가 길어서 PostgreSQL 소켓 경로가 107바이트를 넘었다.
+  - 증상은 이름이 긴 후보만 `pg_ctl` 시작에 실패하는 것이었다.
+  - 작업 폴더를 짧은 경로로 옮겼다.
 
 ## 검증 방법
 

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { getToken } from "./api";
+import { api, getToken } from "./api";
+import { useLoad } from "./hooks";
 import { TokenDialog } from "./components/TokenDialog";
 import { RunPage } from "./pages/RunPage";
 import { RunsPage } from "./pages/RunsPage";
@@ -11,6 +12,7 @@ export function App() {
   const [tokenOpen, setTokenOpen] = useState(false);
   const [hasToken, setHasToken] = useState(Boolean(getToken()));
   const resolver = useRef<((saved: boolean) => void) | null>(null);
+  const { data: info } = useLoad(() => api.info(), [], 0);
 
   /** Opens the token dialog and resolves once it closes; true if a token was saved. */
   const askToken = useCallback(
@@ -56,7 +58,7 @@ export function App() {
             Experiment Engineer <small>AIOps</small>
           </Link>
           <span className="spacer" />
-          <span className="badge plain">scenario · n-plus-one</span>
+          {info?.scenario && <span className="badge plain">scenario · {info.scenario}</span>}
           <button className="btn small" onClick={() => void askToken()}>
             {hasToken ? "Admin token set" : "Set admin token"}
           </button>

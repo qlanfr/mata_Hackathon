@@ -225,17 +225,29 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 report::trial_summary(&api, &trial_id, if diff { 200_000 } else { 0 }).await?;
             print(cli.json, &summary, || {
                 let m = &summary["measurements"];
+                let a = &m["attacks"];
+                let measured = if a.is_object() {
+                    format!(
+                        "attacks blocked {} of {} ({} held out; {} worked on the original) | golden {}",
+                        a["blocked_on_candidate"], a["total"], a["held_out"], a["worked_on_original"],
+                        m["golden"].as_str().unwrap_or("-"),
+                    )
+                } else {
+                    format!(
+                        "p95 {} -> {} ms | SQL per request {} -> {} | golden {}",
+                        m["p95_ms"]["baseline"],
+                        m["p95_ms"]["candidate"],
+                        m["sql_per_request"]["baseline"],
+                        m["sql_per_request"]["candidate"],
+                        m["golden"].as_str().unwrap_or("-"),
+                    )
+                };
                 let mut text = format!(
-                    "trial {}  {}\n  {}\n  reasons: {}\n  p95 {} -> {} ms | SQL per request {} -> {} | golden {}",
+                    "trial {}  {}\n  {}\n  reasons: {}\n  {measured}",
                     summary["trial_id"].as_str().unwrap_or("-"),
                     summary["outcome"].as_str().unwrap_or("-"),
                     summary["url"].as_str().unwrap_or("-"),
                     summary["reasons"],
-                    m["p95_ms"]["baseline"],
-                    m["p95_ms"]["candidate"],
-                    m["sql_per_request"]["baseline"],
-                    m["sql_per_request"]["candidate"],
-                    m["golden"].as_str().unwrap_or("-"),
                 );
                 if diff {
                     text.push_str("\n\n");
