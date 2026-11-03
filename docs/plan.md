@@ -494,6 +494,11 @@ CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러
 - [Deploy edge run 41654525427](https://github.com/qlanfr/mata_Hackathon/actions/runs/41654525427): 마이그레이션 0004 적용. 확인 run(`muse-spark-1.3`)은 VERIFIED 88.3%, A/A 6.7%, 422초.
 - PR 워크플로 드라이런 [run 41655122786](https://github.com/qlanfr/mata_Hackathon/actions/runs/41655122786): 배포본에서 가장 최근 VERIFIED run을 골라 패치를 적용했고, 패치된 서비스가 빌드됐다.
   - 결과 파일 업로드는 숨김 폴더라 빠졌다. 고쳤다.
+- 재배포 [Deploy edge run 41661835447](https://github.com/qlanfr/mata_Hackathon/actions/runs/41661835447): 확인 run VERIFIED, 437초.
+- PR 드라이런 재실행 [run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685):
+  - `aiops info`가 배포본 설정을 보여 줬다: `schedule 17:00 UTC, daily runs 30, daily tokens 1500000, noise retries 3 every 20 min, notifications off`.
+  - run `01a1a1fe`의 패치를 적용하고 PR 설명을 썼다(p95 31.4 → 3.3 ms, golden 14/14).
+  - 패치된 서비스가 빌드됐고, diff와 설명이 업로드됐다.
 
 배포본에서 아직 보지 못한 것:
 - 예약 run: 오늘 17:00 UTC가 첫 실행이다.

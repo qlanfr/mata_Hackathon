@@ -23,7 +23,7 @@ Secret: `NOTIFY_WEBHOOK_URL`. Add it as a repository secret and the deploy workf
 
 ```text
 https://aiops-edge.yh9365.workers.dev
-  scenario n-plus-one  provider meta:muse-spark-1.3  version 0.1.0  deploy 647954d4a90d
+  scenario n-plus-one  provider meta:muse-spark-1.3  version 0.1.0  deploy 1073a692c708
   schedule 17:00 UTC  daily runs 30  daily tokens 1500000  noise retries 3 every 20 min  notifications off
 ```
 
@@ -86,7 +86,8 @@ On the deployment:
 | Feature | Where | Result |
 | --- | --- | --- |
 | Settings deployed | [Deploy edge run 41654525427](https://github.com/qlanfr/mata_Hackathon/actions/runs/41654525427): migration 0004 applied, check run with `muse-spark-1.3` | COMPLETED, VERIFIED 88.3% (A/A 6.7%) |
-| PR workflow, dry run | [run 41655122786](https://github.com/qlanfr/mata_Hackathon/actions/runs/41655122786) | picked the newest VERIFIED run on the deployment, applied its patch and built the patched service |
+| Settings live | `aiops info` against the deployment ([PR workflow run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685)) | `schedule 17:00 UTC  daily runs 30  daily tokens 1500000  noise retries 3 every 20 min  notifications off` |
+| PR workflow, dry run | [run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685) | picked the newest VERIFIED run (`01a1a1fe`, the deploy's check run), applied its patch, wrote the description (p95 31.4 → 3.3 ms, SQL 81.8 → 3.0, pairs 89.0 / 89.2 / 89.8%, golden 14/14), built the patched service, uploaded diff and description |
 
 Not yet seen on the deployment:
 - a scheduled run;
