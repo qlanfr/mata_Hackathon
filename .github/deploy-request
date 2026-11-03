@@ -17,3 +17,4 @@
 2026-11-03 deploy the stop-with-patch repair and the prompt note
 2026-11-03T06:29 deploy the result summary, model results and harness scorecard
 2026-11-03T09:25 deploy: real-bug card on the first screen
+2026-11-03T13:16 deploy: current branch (CLI crate added to the workspace)
