@@ -39,9 +39,31 @@ We also ran the loop on a documented bug in a real open-source Rust project: Vau
 
 ## How we know the harness is not a rubber stamp
 
-- 15 hand-written trap patches, each built to fail exactly one gate (wrong item order, leaked orders, rounded totals, edited golden answers, slower code, a crash on one product, a race under load, a build error). All 15 got the expected verdict for the expected reason in CI.
+- 19 hand-written trap patches, each built to fail exactly one gate:
+  - wrong item order, leaked orders, rounded totals;
+  - edited golden answers, slower code, a crash on one product, a race under load, a build error;
+  - four that add dangerous code, which the security gate refuses.
+
+  All 19 got the expected verdict for the expected reason in CI.
 - 36 rule-generated mutants of the handler: the correctness gates caught 30. Of the rest, 4 cannot change any response and 2 give identical results on this data.
 - Building the traps and mutants exposed real gaps in our own harness, including golden cases that let a wrong item order pass and a build-cache bug that silently measured the original binary. All are fixed and recorded.
+
+## Beyond performance
+
+- **Security gate.** Before anything is built, a patch that adds any of the following is refused:
+  - `unsafe` code or SQL built from strings;
+  - a process, a network call, a secret read or a file write;
+  - an edit to auth or crypto files.
+- **Vulnerability fixes.** The model fixes a reported vulnerability. The harness accepts the fix only if every attack request worked on the original and fails on the fix, and every golden response is unchanged. The attacks include held-out variants the model never sees, so filtering the reported strings fails.
+  - On a SQL injection in product search, 5 of 5 Meta runs were VERIFIED on the first candidate: 3 with Muse Spark 1.3 and 2 with Wonder 1.0.
+  - Every one bound the query as a parameter: 4 of 4 attacks blocked, golden 12/12.
+  - Five hand-written fixes, the shortcuts among them, got the expected verdicts in CI.
+- **Unattended operation.** The deployment can run on its own:
+  - a daily scheduled run;
+  - a noisy measurement is retried later instead of failing;
+  - daily caps on runs and model tokens;
+  - Slack, Discord or webhook notifications;
+  - a workflow that turns a VERIFIED patch into a pull request with its evidence.
 
 ## Honest scope
 

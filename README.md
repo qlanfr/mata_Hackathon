@@ -78,7 +78,13 @@ All runs, the method and the harness changes are in [docs/real-bug-probe.md](doc
 
 A harness that says VERIFIED to everything would also produce the numbers above. So we attacked it.
 
-- **15 trap patches, one per gate.** Each is a hand-written patch built to fail exactly one gate: dropping items, shifting a page, leaking another user's orders, rounding totals, editing the tracker or the golden answers, being slower, crashing on one product, racing under load, not compiling. In CI, inside the network-isolated runner image, all 15 got the expected verdict for the expected reason ([Harness suite run](https://github.com/qlanfr/mata_Hackathon/actions/runs/41502956337)). These are our patches, not model output.
+- **19 trap patches, one per gate.** Each is a hand-written patch built to fail exactly one gate:
+  - dropping items, shifting a page, leaking another user's orders, rounding totals;
+  - editing the tracker or the golden answers;
+  - being slower, crashing on one product, racing under load, not compiling;
+  - four that add dangerous code, for the security gate.
+
+  In CI, inside the network-isolated runner image, all 19 got the expected verdict for the expected reason, and so did 5 more for the vulnerability-fix scenario ([Harness suite run](https://github.com/qlanfr/mata_Hackathon/actions/runs/41658304086)). These are our patches, not model output.
 - **36 generated mutants.** A script mutates the handler with fixed rules (comparison operators, binds ±1, loop order, arithmetic, deleted statements). The correctness gates caught 30. Of the other 6, 4 cannot change any response, and 2 happen to give the same result on this data (an `ORDER BY` removed where PostgreSQL returns insertion order anyway). See [docs/mutation-results.md](docs/mutation-results.md).
 - **Bugs this found in our own harness**, all fixed:
   - The golden cases let a wrong item order pass. A trap patch that sorted items by product ID got VERIFIED until we added a case.
@@ -100,7 +106,7 @@ A harness that says VERIFIED to everything would also produce the numbers above.
   - this includes held-out attacks the model never sees, so filtering the reported strings fails;
   - every golden response is unchanged.
 
-  On a SQL injection in product search, `muse-spark-1.3` wrote a bind-parameter fix that blocked 4 of 4 attacks with golden 12/12, VERIFIED on the first candidate. See [docs/vulnerability-fix.md](docs/vulnerability-fix.md).
+  On a SQL injection in product search, 5 of 5 runs were VERIFIED on the first candidate: 3 with `muse-spark-1.3` and 2 with `muse-wonder-1.0`. Every fix bound the query as a parameter, blocked 4 of 4 attacks, and kept golden at 12/12. It is a textbook case, and no model tried the shortcut the held-out attacks exist to catch. See [docs/vulnerability-fix.md](docs/vulnerability-fix.md).
 
 ## Use it from a terminal or an AI agent
 

@@ -530,10 +530,21 @@ CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러
 
 - 한계(확인함): 따옴표를 두 번 쓰는(`'` → `''`) 수정도 네 공격을 모두 막아 VERIFIED가 된다(로컬에서 실행해 확인).
   - bind 파라미터가 더 나은 수정이지만, 하네스는 동작을 판정할 뿐 코드 리뷰를 대신하지 않는다.
-- Meta 모델 실행(GitHub 러너, "Vulnerability fix run" 워크플로):
-  - [run 41658304356](https://github.com/qlanfr/mata_Hackathon/actions/runs/41658304356), `muse-spark-1.3`, run `01a1a1e9`: 후보 1개로 **VERIFIED**(공격 4/4 차단, golden 12/12), 140초.
-  - 모델의 패치: `ILIKE '%' || $1 || '%'`에 `.bind(query)`. 와일드카드 의미를 유지하는 정확한 수정이다.
-  - `aiops apply`가 PR 설명을 만들었다(PR은 열지 않음).
+- Meta 모델 실행(GitHub 러너, "Vulnerability fix run" 워크플로): **5회 모두 첫 후보로 VERIFIED**. 공격 4/4 차단(숨긴 공격 2개 포함), golden 12/12.
+
+| run | 모델 | 턴 / 도구 | 토큰 입력 / 출력 | 시간 |
+| --- | --- | --- | --- | --- |
+| `01a1a1e9` ([41658304356](https://github.com/qlanfr/mata_Hackathon/actions/runs/41658304356)) | spark-1.3 | 출력 안 함 | 출력 안 함 | 140초 |
+| `01a1a1ef` ([41659372904](https://github.com/qlanfr/mata_Hackathon/actions/runs/41659372904)) | spark-1.3 | 11 / 17 | 48,615 / 18,159 | 300초 |
+| `01a1a1f3` | spark-1.3 | 8 / 13 | 28,159 / 7,574 | 130초 |
+| `01a1a1f5` | wonder-1.0 | 7 / 14 | 25,419 / 5,855 | 80초 |
+| `01a1a1f7` | wonder-1.0 | 10 / 15 | 39,823 / 6,686 | 90초 |
+
+  - 다섯 패치 모두 같은 방식이다: `ILIKE '%' || $1 || '%'`에 `.bind(query)`.
+    - 원인을 고쳤고, golden이 요구하는 와일드카드 의미도 유지했다.
+    - 문자열 필터로 때운 모델은 없었다. 그래서 숨긴 공격이 모델을 걸러 낸 사례는 아직 없다(손으로 쓴 함정과 Replay에서만 확인).
+  - 교과서적인 주입 한 곳이라 쉬운 사례다. 찾기 어려운 취약점은 시도하지 않았다.
+  - `aiops apply`가 VERIFIED 패치마다 PR 설명을 만들었다(PR은 열지 않음).
 - 로컬 Replay(스크립트, 모델 출력 아님): 일부러 넣은 단순 필터가 숨긴 공격에 걸려 REJECTED됐고, 이어진 bind 수정은 VERIFIED였다.
 - 버그 하나를 고쳤다: 함정 실행용 작업 폴더 경로가 길어서 PostgreSQL 소켓 경로가 107바이트를 넘었다.
   - 증상은 이름이 긴 후보만 `pg_ctl` 시작에 실패하는 것이었다.
