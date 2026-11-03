@@ -72,6 +72,7 @@ async fn healthz(State(app): State<Shared>) -> Json<Value> {
         "ok": true, "db": app.db.backend(), "provider": app.provider.label(),
         "scenario": app.spec.id, "scenario_hash": app.scenario_hash,
         "instance": app.lease.holder(), "version": env!("CARGO_PKG_VERSION"),
+        "deploy_stamp": app.deploy_stamp, "inline_limit": app.artifacts.inline_limit(),
         "cron_ticks": app.cron_ticks.load(std::sync::atomic::Ordering::Relaxed),
         "last_cron_tick_ms": app.last_cron_tick_ms.load(std::sync::atomic::Ordering::Relaxed),
     }))

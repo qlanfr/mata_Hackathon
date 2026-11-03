@@ -41,6 +41,8 @@ pub struct App {
     pub tick_lock: tokio::sync::Mutex<()>,
     /// Only the lease holder advances runs (see `lease.rs`).
     pub lease: Lease,
+    /// From AIOPS_DEPLOY_STAMP; see /api/v1/info.
+    pub deploy_stamp: String,
     /// Ticks received from the Worker's cron (`POST /internal/tick?source=cron`), since start.
     pub cron_ticks: std::sync::atomic::AtomicU64,
     pub last_cron_tick_ms: std::sync::atomic::AtomicU64,

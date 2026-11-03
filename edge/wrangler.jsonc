@@ -54,7 +54,11 @@
     "bindings": [
       { "name": "AIOPSD", "class_name": "AiopsdContainer" },
       { "name": "RUNNER", "class_name": "RunnerContainer" }
-    ]
+    ],
+    // Adopt new Worker code at once. By default (since 2026-10-30) an active Durable Object keeps
+    // its old code for up to 5 minutes; the container classes here hold no in-flight work worth
+    // waiting for, and the deploy restarts aiopsd right after, which needs the new environment.
+    "code_update_strategy": { "mode": "immediate" }
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["RunnerContainer"] },

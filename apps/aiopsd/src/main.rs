@@ -57,6 +57,10 @@ struct Opts {
     /// store (R2 in production).
     #[arg(long, env = "AIOPS_INLINE_LIMIT", default_value_t = 64 * 1024)]
     inline_limit: usize,
+    /// Opaque deploy identifier, reported on /api/v1/info so a deploy can check which
+    /// configuration the running instance started with.
+    #[arg(long, env = "AIOPS_DEPLOY_STAMP", default_value = "")]
+    deploy_stamp: String,
     #[arg(
         long,
         env = "AIOPS_RUNNER_URL",
@@ -144,6 +148,7 @@ async fn main() -> anyhow::Result<()> {
             uuid::Uuid::new_v4().to_string(),
             LEASE_TTL_MS,
         ),
+        deploy_stamp: opts.deploy_stamp.clone(),
         cron_ticks: std::sync::atomic::AtomicU64::new(0),
         last_cron_tick_ms: std::sync::atomic::AtomicU64::new(0),
     });

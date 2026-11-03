@@ -95,6 +95,10 @@ impl Artifacts {
         self
     }
 
+    pub fn inline_limit(&self) -> usize {
+        self.inline_limit
+    }
+
     pub async fn put_json(
         &self,
         run_id: &str,

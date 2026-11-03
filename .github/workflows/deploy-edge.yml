@@ -119,7 +119,7 @@ jobs:
           PY
           )
           status=0
-          npx wrangler deploy --secrets-file "$secrets" 2>&1 | tee ../.work/deploy.log || status=$?
+          npx wrangler deploy --secrets-file "$secrets" --var "DEPLOY_STAMP:${GITHUB_SHA:0:12}" 2>&1 | tee ../.work/deploy.log || status=$?
           rm -f "$secrets"
           [ "$status" = 0 ] || exit "$status"
           url=$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' ../.work/deploy.log | head -1 || true)
@@ -139,8 +139,23 @@ jobs:
         env:
           BASE_URL: ${{ steps.deploy.outputs.url }}
         run: |
-          curl -sS --retry 5 --retry-delay 5 --retry-all-errors -X POST \
-            -H "authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/admin/restart-aiopsd"; echo
+          # Restart until the instance answering reports this deploy's stamp: a Durable Object can
+          # still run older code for a short while after a deploy, and a container it restarts
+          # then gets the older environment.
+          want="${GITHUB_SHA:0:12}"
+          for attempt in $(seq 1 12); do
+            curl -sS --retry 5 --retry-delay 5 --retry-all-errors -X POST \
+              -H "authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/admin/restart-aiopsd"; echo
+            for _ in $(seq 1 12); do
+              sleep 10
+              info=$(curl -sS -m 30 "$BASE_URL/api/v1/info" 2>/dev/null || true)
+              if [ "$(printf '%s' "$info" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deploy_stamp",""))' 2>/dev/null)" = "$want" ]; then
+                echo "aiopsd runs deploy $want: $info"; exit 0
+              fi
+            done
+            echo "attempt $attempt: aiopsd reports $(printf '%s' "$info" | head -c 300); restarting again"
+          done
+          echo "::error::aiopsd never reported deploy stamp $want"; exit 1
 
       - name: Full run on Cloudflare
         if: (github.event_name == 'push' || inputs.run_e2e) && steps.deploy.outputs.url != ''

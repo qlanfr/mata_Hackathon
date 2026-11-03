@@ -16,6 +16,8 @@ type Bindings = Cloudflare.Env & {
   ADMIN_TOKEN: string;
   META_API_KEY?: string;
   AIOPS_INLINE_LIMIT?: string;
+  /** Set by the deploy workflow (`--var DEPLOY_STAMP:<commit>`); aiopsd reports it on /api/v1/info. */
+  DEPLOY_STAMP?: string;
 };
 
 const TERMINAL = "('COMPLETED','EXHAUSTED','FAILED','CANCELLED')";
@@ -43,6 +45,7 @@ export class AiopsdContainer extends Container<Bindings> {
       META_MODEL: env.META_MODEL ?? "",
       META_BASE_URL: env.META_BASE_URL ?? "https://api.meta.ai/v1",
       AIOPS_INLINE_LIMIT: env.AIOPS_INLINE_LIMIT ?? "65536",
+      AIOPS_DEPLOY_STAMP: env.DEPLOY_STAMP ?? "",
     };
   }
 }
