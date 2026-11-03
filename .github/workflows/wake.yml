@@ -1,0 +1,57 @@
+name: Wake
+
+# Wakes the deployed containers (aiopsd and the runner) and keeps them awake for a while, for
+# example before recording a demo: Cloudflare stops a container after 15-20 minutes without
+# requests. Runs on demand, or when a push changes .github/wake-request; the last non-comment
+# line of that file is the number of minutes to keep the containers awake (default 30).
+# Repository secret: ADMIN_TOKEN (the runner's health endpoint is admin-only).
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: Minutes to keep the containers awake
+        default: "30"
+  push:
+    paths:
+      - .github/wake-request
+
+concurrency:
+  group: wake
+  cancel-in-progress: true
+
+env:
+  BASE_URL: https://aiops-edge.yh9365.workers.dev
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wake and keep awake
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          MINUTES_INPUT: ${{ inputs.minutes }}
+        run: |
+          if [ -z "$ADMIN_TOKEN" ]; then echo "::error::Repository secret ADMIN_TOKEN is not set"; exit 1; fi
+          minutes="${MINUTES_INPUT:-$(grep -v '^\s*#' .github/wake-request 2>/dev/null | grep -v '^\s*$' | tail -1)}"
+          minutes="${minutes:-30}"
+          started=$SECONDS
+          until out=$(curl -fsS -m 30 "$BASE_URL/api/v1/info" 2>&1); do
+            if [ $((SECONDS - started)) -gt 600 ]; then echo "::error::aiopsd did not answer within 10 minutes: $out"; exit 1; fi
+            sleep 10
+          done
+          echo "aiopsd awake after $((SECONDS - started))s: $out" | tee -a "$GITHUB_STEP_SUMMARY"
+          until out=$(curl -fsS -m 30 -H "authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/runner/healthz" 2>&1); do
+            if [ $((SECONDS - started)) -gt 600 ]; then echo "::error::the runner did not answer within 10 minutes: $out"; exit 1; fi
+            sleep 10
+          done
+          echo "runner awake after $((SECONDS - started))s: $out" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "keeping both awake for $minutes minutes" | tee -a "$GITHUB_STEP_SUMMARY"
+          end=$((SECONDS + minutes * 60))
+          while [ $SECONDS -lt $end ]; do
+            sleep 60
+            curl -fsS -m 30 "$BASE_URL/api/v1/info" > /dev/null || echo "aiopsd ping failed at $(date -u +%H:%M:%S)"
+            curl -fsS -m 30 -H "authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/runner/healthz" > /dev/null || echo "runner ping failed at $(date -u +%H:%M:%S)"
+          done
+          echo "done at $(date -u +%H:%M:%S) UTC"
