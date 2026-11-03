@@ -1,7 +1,8 @@
 # A real bug: Vaultwarden issue #1402, "N+1 query problem on api/sync", at the commit before the
 # fix (PR #2429, merged 2022-05-11). Vaultwarden is GPL-3.0 and is not part of this repository:
 # scripts/real-bug/vaultwarden-setup.sh clones it into external/, builds it, seeds a vault and
-# dumps the database that every measurement starts from. Golden answers are recorded from the
+# dumps the database that every measurement starts from. Its one change to the clone is an empty
+# [workspace] table in Cargo.toml, so Cargo does not mistake this repository for its workspace. Golden answers are recorded from the
 # unchanged service with `aiops-runner golden` after that. No file here is editable by a model.
 id = "vaultwarden-sync"
 version = 1

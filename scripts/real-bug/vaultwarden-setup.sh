@@ -31,7 +31,12 @@ mkdir -p "$ROOT/external"
 if [ ! -d "$SRC/.git" ]; then
   git clone -q https://github.com/dani-garcia/vaultwarden "$SRC"
 fi
-git -C "$SRC" checkout -q "$SHA"
+git -C "$SRC" checkout -q -f "$SHA"
+# The clone and the runner's copies of it live inside this repository's directory tree. Cargo looks
+# for a workspace root in parent directories and would find this repository's, which Rust 1.60
+# cannot parse. An empty [workspace] makes Vaultwarden its own workspace root. Build setup only:
+# it changes no code, and the lockfile stays valid.
+grep -q '^\[workspace\]' "$SRC/Cargo.toml" || printf '\n[workspace]\n' >> "$SRC/Cargo.toml"
 log "fetching dependencies"
 (cd "$SRC" && cargo fetch --locked)
 log "building vaultwarden $(git -C "$SRC" rev-parse --short HEAD) with $(rustc --version)"
