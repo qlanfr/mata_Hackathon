@@ -13,6 +13,8 @@
 
 ## 제출 설명에 쓸 수 있는 사실 (측정됨)
 
+영어 제출 설명문 초안은 [submission-text.md](submission-text.md)에 있습니다. 아래 사실만으로 썼습니다.
+
 ### Meta 모델로 돌린 배포본 run (가장 중요)
 
 - 모델 `muse-spark-1.3`(Meta Model API)이 관측·실험 역할을 맡았다. run `01a19d86-d9d6-76d3-bced-54ae6d3475ec`.
@@ -20,8 +22,8 @@
 - 하네스 검증: golden 12/12, 불변식 208/208, 표본 비교 200/200. 요청당 SQL 81.8 → 3.0, p95 쌍별 개선 88.6 / 87.7 / 88.3%, A/A 노이즈 2.6%. 판정 VERIFIED.
 - 모델 9턴, 도구 호출 15회, 입력 37,327 / 출력 10,483 토큰. 생성부터 판정까지 약 7분(배포 직후 runner 교체로 인한 재시도 포함).
 - 두 번째 run(`01a19da7-b2a2-70e0-af44-018eddd0c003`): 모델의 첫 패치가 search 문자열 불일치로 POLICY_REJECTED(실행 전 차단)됐다. 모델이 거절 이유를 읽고 고친 두 번째 패치가 VERIFIED(p95 쌍별 개선 88.9 / 88.7 / 89.0%, golden 14/14)를 받았다. 실제 모델의 실수를 하네스가 막고, 루프가 스스로 회복한 사례다.
-- 모델 비교(같은 시나리오, Cloudflare): `muse-spark-1.3` 5회 모두 VERIFIED(2회는 두 번째 후보로), `muse-wonder-1.0` 4회 중 2회 VERIFIED. 9회 모두 같은 원인(N+1)과 같은 종류의 수정(JOIN 한 번)을 냈고, 패치 본문은 매번 달랐다. 개선율 87.7~90.1%. 표는 `docs/plan.md`.
-- 표현 주의: 시나리오 하나에서 Spark 5회, Wonder 4회를 돌린 결과다. "모델이 항상 찾는다"고 쓰지 않는다. Wonder의 실패 1회는 우리 쪽 출력 상한 때문이었다고 밝힌다.
+- 모델 비교(같은 시나리오, Cloudflare): `muse-spark-1.3` 6회 모두 VERIFIED(2회는 두 번째 후보로), `muse-wonder-1.0` 4회 중 2회 VERIFIED. 10회 모두 같은 원인(N+1)과 같은 종류의 수정(JOIN 한 번)을 냈고, 패치 본문은 매번 달랐다. 개선율 87.7~90.1%. 표는 `docs/plan.md`.
+- 표현 주의: 시나리오 하나에서 Spark 6회, Wonder 4회를 돌린 결과다. "모델이 항상 찾는다"고 쓰지 않는다. Wonder의 실패 1회는 우리 쪽 출력 상한 때문이었다고 밝힌다.
 
 ### Cloudflare 배포본 (https://aiops-edge.yh9365.workers.dev, Replay provider)
 

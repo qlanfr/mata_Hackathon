@@ -1,35 +1,96 @@
-# AIOps 자율 실험 엔지니어
+# AIOps Experiment Engineer: the AI proposes, a Rust harness proves
 
-Meta 모델이 운영 증거를 읽고 성능 개선 가설과 패치를 제안합니다. Rust 하네스는 그 패치를 격리된 Cloudflare Container에서 빌드·검증·측정합니다. 채택 여부는 Rust 평가기만 판정합니다.
+AI models write plausible performance fixes in seconds. Knowing whether a fix is correct, and whether it really made the service faster, still takes an engineer an afternoon. This project closes that gap without trusting the model.
 
-- 첫 시나리오: Rust 주문 목록 API + PostgreSQL의 N+1 조회
-- 스택: Rust(Axum · Tokio) / React(Vite · TypeScript) / Cloudflare Workers + Containers + D1 + R2
-- 상태: Cloudflare에 배포됨 — https://aiops-edge.yh9365.workers.dev .
-  - 모델: Meta Model API의 `muse-spark-1.3`(관측·실험 역할).
-  - 배포본에서 모델이 증거를 읽고 N+1을 찾아 패치를 제안했습니다. 하네스가 그 패치를 VERIFIED로 판정했습니다(run `01a19d86-d9d6-76d3-bced-54ae6d3475ec`, p95 쌍별 개선 88.6 / 87.7 / 88.3%, 요청당 SQL 81.8 → 3.0).
-  - 같은 시나리오에서 Spark 1.3은 5회 모두, Wonder 1.0은 4회 중 2회 VERIFIED에 도달했습니다(`docs/plan.md`의 모델 비교).
+A Meta model (Muse Spark 1.3, through the Meta Model API) reads operational evidence, states a hypothesis and writes a patch. A Rust harness builds the patch in an isolated container with no internet and no secrets, checks that every response is unchanged, and measures p95 latency against the unchanged service in alternating pairs. Only the Rust evaluator decides: **VERIFIED**, **REJECTED** or **INCONCLUSIVE**, each with the measured reason. The model can propose; it cannot pass its own patch.
 
-## 지금 동작하는 것
+[한국어 README](README.ko.md)
 
-| 구성 요소 | 위치 | 역할 |
-| --- | --- | --- |
-| `aiops-core` | `crates/aiops-core` | 시나리오 계약, search/replace 패치 정책, 측정 보고서 타입, 판정 게이트(평가기) |
-| `aiops-runner` | `apps/aiops-runner` | 패치 적용 → 빌드 → golden 검사 → k6 교대 측정 → 정리. CLI와 HTTP job API |
-| 실험 대상 | `fixtures/orders-api` | N+1 패턴이 있는 주문 목록 API. 요청마다 SQL 수와 DB 시간을 JSON으로 기록 |
-| 시나리오 | `scenarios/n-plus-one` | seed, golden 케이스 12개, 부하 스크립트, 하네스 검증용 후보 14개(관문별 함정, `scripts/harness-suite.sh`) |
-| `aiopsd` | `apps/aiopsd` | 상태 머신, 제어 DB(D1/SQLite), 관측·실험 역할 하네스, Meta/Replay provider, API·SSE |
-| 제어 DB 스키마 | `migrations` | D1과 로컬 SQLite가 같은 파일을 사용 |
-| Edge Worker | `edge` | React 정적 자산, aiopsd·runner 컨테이너, D1·R2·runner relay, cron, 쓰기 API 인증 |
-| 화면 | `web` | 실행 목록, 실시간 타임라인(SSE), 결과(판정 게이트·쌍별 p95 차트·diff·재현 정보) |
+- **Live:** https://aiops-edge.yh9365.workers.dev (Cloudflare Workers, Containers, D1, R2). Reading is public; starting a run needs the admin token.
+- **Best run to open:** [`/runs/01a19da7-b2a2-70e0-af44-018eddd0c003`](https://aiops-edge.yh9365.workers.dev/runs/01a19da7-b2a2-70e0-af44-018eddd0c003). The model's first patch did not match the source, so the harness refused it before anything ran. The model read the refusal, fixed the patch, and the second one was VERIFIED.
+- **Stack:** Rust (Axum, Tokio, SQLx), React (Vite, TypeScript), Cloudflare Workers + Containers + D1 + R2, Meta Model API.
 
 ![Run timeline](docs/img/ui-run.png)
 
-![Trial result](docs/img/ui-trial.png)
+## How one run works
 
-로컬 측정 결과(4 vCPU 개발 컨테이너, 100 rps)는 [docs/plan.md의 진행 상황](docs/plan.md#진행-상황)에 있습니다.
-정상 후보는 VERIFIED(p95 약 48 ms → 약 4.5 ms), 항목을 빠뜨린 후보는 REJECTED, 보호 파일을 고친 후보는 POLICY_REJECTED, 과부하 측정은 INCONCLUSIVE로 판정됐습니다.
+1. **Baseline.** The runner measures the unchanged service twice under the same fixed load (A/A). If two runs of the same code differ by more than 15%, nothing is judged.
+2. **Observe.** The observer role calls tools to read metrics, the slowest requests (each with its SQL count and DB time), the source and past experiments. It writes facts and hypotheses separately, every fact with an evidence ID.
+3. **Propose.** The experimenter role writes one hypothesis, what result would prove it wrong, and a search/replace patch.
+4. **Check before running.** The patch must touch only allowed files (never the request tracker, the golden answers or `Cargo.toml`), and each search text must match the source exactly once.
+5. **Build and verify.** The runner applies the patch in a fresh workspace and builds it offline. It then compares the candidate with the original on 14 golden cases, checks response invariants, and compares 200 sampled requests answered by both.
+6. **Measure.** Baseline and candidate run alternately in 3 pairs at 100 requests per second. Each pair gives one p95 improvement.
+7. **Decide.** The evaluator applies the gates below. A REJECTED or INCONCLUSIVE result goes back to the model with its reasons, and the model may try again within its budget (3 candidates, 20 model turns, 40 tool calls, 30 minutes).
 
-## 실행
+| Gate | Fails when | Verdict |
+| --- | --- | --- |
+| Policy | a protected or out-of-scope file, or a search text that does not match exactly once | POLICY_REJECTED, nothing runs |
+| Build | the candidate does not compile | EXECUTION_ERROR |
+| Correctness | any golden case, invariant or sampled response differs, or the candidate crashes | REJECTED |
+| Trust in the measurement | baseline pairs vary more than 15%, or the baseline cannot keep up with the load | INCONCLUSIVE, measured once more |
+| Errors and load | the candidate's error rate rises above the baseline's, or it falls behind the load while being slower | REJECTED |
+| Improvement | median p95 improvement ≥ 20% and every pair improved | VERIFIED |
+| | every pair misses 20% by more than the measured noise, or the candidate is slower | REJECTED |
+| | anything in between | INCONCLUSIVE |
+
+Every verdict is stored with the scenario hash, the patch hash, the measurement environment and the raw reports, so the same experiment can be run again.
+
+## Results on Cloudflare with Meta models
+
+All runs below used the deployed system. The scenario is an order-list API whose handler loads line items and product names one query at a time (N+1). The full table with every run ID is in [docs/plan.md](docs/plan.md) under "모델 비교".
+
+| Model | Runs | Reached VERIFIED | Notes |
+| --- | --- | --- | --- |
+| `muse-spark-1.3` (default) | 6 | 6 | Two runs needed a second candidate: one first patch was refused by the policy gate, one was INCONCLUSIVE twice because of measurement noise |
+| `muse-wonder-1.0` | 4 | 2 | One failure was ours: the output-token cap cut its answer off (fixed). In the other, the model wrote a full plan and then chose `stop` (now sent back for one repair, not yet seen in a live run) |
+
+In every VERIFIED trial:
+
+| Measure | Before | After |
+| --- | --- | --- |
+| SQL statements per request | 81.8 | 3.0 |
+| p95 latency at 100 rps | about 17 ms | about 2 ms |
+| Median pairwise p95 improvement | | 87.7% to 90.1% |
+| Golden cases / sampled requests | | all passed |
+
+Every run named the same cause and proposed the same kind of fix (one batched JOIN), but the patch text was different every time. Each patch therefore had to be verified on its own.
+
+## How we tested the harness itself
+
+A harness that says VERIFIED to everything would also produce the numbers above. So we attacked it.
+
+- **15 trap patches, one per gate.** Each is a hand-written patch built to fail exactly one gate: dropping items, shifting a page, leaking another user's orders, rounding totals, editing the tracker or the golden answers, being slower, crashing on one product, racing under load, not compiling. In CI, inside the network-isolated runner image, all 15 got the expected verdict for the expected reason ([Harness suite run](https://github.com/qlanfr/mata_Hackathon/actions/runs/41502956337)). These are our patches, not model output.
+- **36 generated mutants.** A script mutates the handler with fixed rules (comparison operators, binds ±1, loop order, arithmetic, deleted statements). The correctness gates caught 30. Of the other 6, 4 cannot change any response, and 2 happen to give the same result on this data (an `ORDER BY` removed where PostgreSQL returns insertion order anyway). See [docs/mutation-results.md](docs/mutation-results.md).
+- **Bugs this found in our own harness**, all fixed:
+  - The golden cases let a wrong item order pass. A trap patch that sorted items by product ID got VERIFIED until we added a case.
+  - Mutation testing found two more golden gaps: an unknown user ID below the highest real ID, and the last user.
+  - On a cold runner, cargo skipped the candidate build and the "candidate" was the original binary. This could only hide improvements, never invent one.
+  - During a rollout, an old and a new orchestrator advanced the same run. A D1 lease and a compare-and-swap guard now prevent it.
+
+## Scope and limits
+
+- **One scenario.** The N+1 order list is a well-known problem. The point of the project is the verification loop, which knows nothing about N+1: the gates above are generic, and the model's patch is judged the same way whatever it does.
+- **Target shape.** Today the runner targets a Rust HTTP service on PostgreSQL, built offline from dependencies baked into the image. Adding another service is a scenario file, a seed and a load script; see [docs/adding-a-service.md](docs/adding-a-service.md).
+- **Correctness means "same as before".** Golden answers come from the original service, so a candidate must preserve existing behaviour. Invariants check a few rules that hold whatever the code, which also catches some bugs the original already had.
+- **Fixed load.** Results hold for the scenario's load profile and data, not for every workload.
+- **One experiment at a time.** There is one runner, and it runs one job at a time.
+
+## Repository
+
+| Path | What it is |
+| --- | --- |
+| `crates/aiops-core` | Scenario contract, patch policy, report types and the evaluator (all verdict rules) |
+| `apps/aiops-runner` | Applies a patch, builds offline, runs correctness checks and k6 load, cleans up. CLI and HTTP job API |
+| `apps/aiopsd` | Orchestrator state machine, control DB (D1 or SQLite), observer and experimenter roles with tools, Meta and Replay providers, API and SSE |
+| `fixtures/orders-api` | The service under test, with the N+1 handler. Logs SQL count and DB time per request |
+| `scenarios/n-plus-one` | Scenario contract, schema, seed, golden cases, load script, trap patches |
+| `edge` | Cloudflare Worker: static UI, the two containers, relays to D1, R2 and the runner, 1-minute cron, write-API auth |
+| `web` | React UI: runs, live timeline, trial result with gates, pairwise p95 chart, diff and reproduction data |
+| `migrations` | Control DB schema, shared by D1 and local SQLite |
+
+## Run it locally
+
+PostgreSQL server binaries and k6 must be installed.
 
 ```bash
 cargo test --workspace
@@ -51,14 +112,12 @@ cargo build --release -p aiops-runner -p aiopsd
 curl -s -X POST 127.0.0.1:18090/api/v1/runs -H 'content-type: application/json' -d '{}'
 ```
 
-화면은 `web`에서 `npm ci && npm run dev`로 띄우면 `/api`가 로컬 aiopsd(127.0.0.1:18090)로 연결됩니다.
+Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back recorded model answers. The UI marks those runs `replay`. For the UI, run `npm ci && npm run dev` in `web`; it proxies `/api` to 127.0.0.1:18090. Deployment is described in [docs/setup.md](docs/setup.md) (Korean).
 
-PostgreSQL 서버 바이너리와 k6가 필요합니다. 배포와 준비 작업은 [docs/setup.md](docs/setup.md)를 보세요.
+## Docs
 
-## 문서
-
-- [docs/plan.md](docs/plan.md): 구현 계획, 일정, 리스크, 진행 상황
-- [docs/architecture.md](docs/architecture.md): 배포 구성, 상태 전이, trial 시퀀스, 판정 게이트(mermaid)
-- [docs/setup.md](docs/setup.md): 사용자가 할 일, Cloudflare 배포 방법, 실측 스크립트
-- [docs/demo-script.md](docs/demo-script.md): 3분 데모 장면과 내레이션
-- [docs/submission.md](docs/submission.md): 제출 체크리스트, 써도 되는 사실과 쓰면 안 되는 표현
+- [docs/architecture.md](docs/architecture.md): deployment, run states, one trial, the gates
+- [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
+- [docs/submission-text.md](docs/submission-text.md): project description for the submission
+- [docs/plan.md](docs/plan.md) (Korean): plan, daily log, every measured run and every bug found
+- [docs/mutation-results.md](docs/mutation-results.md): mutation testing results
