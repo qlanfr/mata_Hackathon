@@ -80,6 +80,9 @@ pub struct ModelResponse {
     /// Assistant messages and function calls, in order.
     pub items: Vec<Item>,
     pub usage: Usage,
+    /// Why the response is incomplete (`max_output_tokens`, ...), when the API says it is. The
+    /// text items are then cut off and must not be trusted.
+    pub incomplete: Option<String>,
 }
 
 pub enum Provider {
@@ -136,7 +139,9 @@ impl MetaProvider {
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key: api_key.to_owned(),
             model: model.to_owned(),
-            max_output_tokens: 4096,
+            // Reasoning counts against this. Muse Wonder spent all of 4096 on reasoning before
+            // its final answer, which then came back empty or cut off.
+            max_output_tokens: 16384,
             gate: tokio::sync::Mutex::new(()),
         })
     }
@@ -276,6 +281,12 @@ pub async fn contract_test(meta: &MetaProvider) -> anyhow::Result<()> {
         if !text.is_empty() {
             println!("  message: {}", truncate(&text, 300));
         }
+        if let Some(reason) = &resp.incomplete {
+            anyhow::bail!(
+                "response incomplete ({reason}) after {} output tokens",
+                resp.usage.output_tokens
+            );
+        }
         if calls.is_empty() {
             let answer: Value = serde_json::from_str(&text)
                 .context("final answer is not JSON (text.format json_schema ignored?)")?;
@@ -350,9 +361,16 @@ pub fn parse_responses_output(value: &Value) -> ModelResponse {
             _ => {}
         }
     }
+    let incomplete = (value["status"].as_str() == Some("incomplete")).then(|| {
+        value["incomplete_details"]["reason"]
+            .as_str()
+            .unwrap_or("unknown reason")
+            .to_owned()
+    });
     ModelResponse {
         response_id: value["id"].as_str().map(str::to_owned),
         items,
+        incomplete,
         usage: Usage {
             input_tokens: value["usage"]["input_tokens"].as_u64().unwrap_or(0),
             output_tokens: value["usage"]["output_tokens"].as_u64().unwrap_or(0),
@@ -446,6 +464,7 @@ impl ReplayProvider {
             response_id: None,
             items: vec![item],
             usage: Usage::default(),
+            incomplete: None,
         })
     }
 }
@@ -453,6 +472,23 @@ impl ReplayProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reports_an_incomplete_response() {
+        let v = serde_json::json!({
+            "id": "r", "status": "incomplete",
+            "incomplete_details": { "reason": "max_output_tokens" },
+            "output": [{ "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "{\"a\": \"cut" }] }],
+            "usage": { "input_tokens": 1, "output_tokens": 4096 }
+        });
+        let r = parse_responses_output(&v);
+        assert_eq!(r.incomplete.as_deref(), Some("max_output_tokens"));
+        assert_eq!(
+            parse_responses_output(&serde_json::json!({ "status": "completed", "output": [] }))
+                .incomplete,
+            None
+        );
+    }
 
     #[test]
     fn parses_function_calls_messages_and_usage() {

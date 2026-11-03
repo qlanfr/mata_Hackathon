@@ -128,7 +128,7 @@ pub async fn run_role<T: Structured>(
                 "provider": provider.label_for(model), "response_id": response.response_id,
                 "usage": response.usage,
                 "tool_calls": calls.iter().map(|c| c.1.clone()).collect::<Vec<_>>(),
-                "answered": calls.is_empty(),
+                "answered": calls.is_empty(), "incomplete": response.incomplete,
             }),
         )
         .await;
@@ -185,7 +185,16 @@ pub async fn run_role<T: Structured>(
             role: "assistant".into(),
             content: text.clone(),
         });
-        match parse_structured::<T>(&text) {
+        // A cut-off answer is not parsed: the API said it is incomplete, so even JSON that
+        // happens to close would be a shortened answer.
+        let parsed = match &response.incomplete {
+            Some(reason) => Err(format!(
+                "the answer was cut off ({reason}) after {} output tokens; keep reasoning brief",
+                response.usage.output_tokens
+            )),
+            None => parse_structured::<T>(&text),
+        };
+        match parsed {
             Ok(value) => return Ok(value),
             Err(problem) if !repaired => {
                 repaired = true;
