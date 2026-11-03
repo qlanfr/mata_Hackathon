@@ -67,7 +67,7 @@ jobs:
             schedule) which=scheduled; open=$([ "$AUTO_PR" = true ] && echo true || echo false) ;;
             *) which=$(grep -v '^\s*#' .github/pr-request | grep -v '^\s*$' | tail -1); open=false ;;
           esac
-          for _ in $(seq 30); do ./target/release/aiops info >/dev/null && break; sleep 10; done
+          for _ in $(seq 30); do ./target/release/aiops info && break; sleep 10; done
           picked=$(python3 scripts/pick-verified.py ./target/release/aiops "$which")
           if [ -z "$picked" ]; then
             echo "No VERIFIED run for \`$which\`; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
