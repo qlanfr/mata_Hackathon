@@ -7,7 +7,8 @@ Without --full it only reads (service_info, list_runs, get_run and get_trial on 
 With --full it starts an experiment through the start_experiment tool, calls wait_for_run until
 the run finishes and reads the verified trial. The deployment and the admin token come from the
 environment (AIOPS_URL, AIOPS_ADMIN_TOKEN); the token is never passed as a tool argument.
-Exit code: 0 on success (with --full: a finished run; with ACCEPT=verified, a VERIFIED one).
+Exit code: 0 on success (with --full: a run that COMPLETED or EXHAUSTED; with ACCEPT=verified, a
+VERIFIED one). A run that FAILED because the machine was too noisy to measure is started once more.
 """
 
 import json
@@ -75,15 +76,22 @@ def main():
     print(f"list_runs: {len(runs)} runs")
 
     if full:
-        started = c.call("start_experiment", {})
-        run_id = started["run_id"]
-        print(f"start_experiment: {run_id} {started['url']}")
         deadline = time.time() + int(os.environ.get("TIMEOUT_S", "3000"))
-        while True:
-            run = c.call("wait_for_run", {"run_id": run_id, "timeout_s": 300}, progress=f"wait-{run_id}")
-            print(f"wait_for_run: {run['state']} finished={run['finished']}")
-            if run["finished"] or time.time() > deadline:
-                break
+        for attempt in (1, 2):
+            started = c.call("start_experiment", {})
+            run_id = started["run_id"]
+            print(f"start_experiment: {run_id} {started['url']}")
+            while True:
+                run = c.call("wait_for_run", {"run_id": run_id, "timeout_s": 300}, progress=f"wait-{run_id}")
+                print(f"wait_for_run: {run['state']} finished={run['finished']}")
+                if run["finished"] or time.time() > deadline:
+                    break
+            # A machine too noisy to measure on says nothing about the tools; try once more,
+            # as scripts/drive-run.sh does. Any other failure counts.
+            if attempt == 1 and run["state"] == "FAILED" and "too noisy" in (run.get("error") or ""):
+                print(f"  {run['error']}; starting one more experiment")
+                continue
+            break
     else:
         if not runs:
             print("no runs to read")
@@ -105,7 +113,8 @@ def main():
 
     summary = f"MCP {'full' if full else 'read'} run {run['run_id']}: {run['state']}, verified={run['verified']}, provider {run['provider']}"
     print("SUMMARY:", summary)
-    if full and not run["finished"]:
+    if full and run["state"] not in ("COMPLETED", "EXHAUSTED"):
+        print(f"run ended {run['state']}: {run.get('error')}")
         return 1
     if full and os.environ.get("ACCEPT", "finished") == "verified" and not run["verified"]:
         return 1
