@@ -24,7 +24,12 @@ log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 log "build image"
 docker build -q -t vw-build - <<'EOF' > /dev/null
 FROM rust:1.60-bullseye
-RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/*
+# The buildpack-deps base already ships libpq. Debian 11 has moved to archive.debian.org, so
+# install from there only if it is missing.
+RUN test -e /usr/include/postgresql/libpq-fe.h || ( \
+      printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian-security bullseye-security main\n' > /etc/apt/sources.list \
+   && apt-get -o Acquire::Check-Valid-Until=false update \
+   && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/* )
 EOF
 
 git clone -q https://github.com/dani-garcia/vaultwarden "$WORK/vw"
