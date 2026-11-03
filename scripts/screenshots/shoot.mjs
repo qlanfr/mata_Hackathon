@@ -21,7 +21,7 @@ async function shot(path, waitFor, file, height) {
   console.log(`${file}: ${path}`);
 }
 
-await shot("/", ".highlight .tile", "ui-runs.png", 1500);
+await shot("/", ".highlight .tile", "ui-runs.png", 1900);
 await shot(`/runs/${runId}`, ".timeline", "ui-run.png", 1500);
 await shot(`/trials/${verified.id}`, ".result-strip", "ui-trial.png", 1500);
 await browser.close();

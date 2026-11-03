@@ -42,7 +42,7 @@ All runs below used the deployed system. The scenario is an order-list API whose
 
 | Model | Runs | Reached VERIFIED | Notes |
 | --- | --- | --- | --- |
-| `muse-spark-1.3` (default) | 8 | 7 | The eighth run was stopped by our own deploy before the model was called. Two runs needed a second candidate: one first patch was refused by the policy gate, one was INCONCLUSIVE twice because of measurement noise |
+| `muse-spark-1.3` (default) | 9 | 8 | One run was stopped by our own deploy before the model was called. Two runs needed a second candidate: one first patch was refused by the policy gate, one was INCONCLUSIVE twice because of measurement noise |
 | `muse-wonder-1.0` | 4 | 2 | One failure was ours: the output-token cap cut its answer off (fixed). In the other, the model wrote a full plan and then chose `stop` (now sent back for one repair, not yet seen in a live run) |
 
 In every VERIFIED trial:
