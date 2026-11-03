@@ -1,0 +1,60 @@
+name: CLI and MCP
+
+# Builds the `aiops` CLI and MCP server, then uses them against the deployed Worker the way a
+# terminal user and an AI client would. Runs on demand or when a push changes
+# .github/mcp-request; its last non-comment line is `read` (read-only tools) or `full` (start an
+# experiment through the start_experiment tool and wait for the verdict through wait_for_run).
+# The built binary is uploaded as an artifact. Repository secret for `full`: ADMIN_TOKEN.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/mcp-request
+
+concurrency:
+  group: mcp-smoke
+  cancel-in-progress: false
+
+env:
+  AIOPS_URL: https://aiops-edge.yh9365.workers.dev
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build aiops
+        run: cargo build --release --locked -p aiops-cli
+      - name: Wait for any deploy in progress
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 60); do
+            busy=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-edge.yml --json status \
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued" or .status == "pending" or .status == "waiting")] | length')
+            if [ "$busy" = 0 ]; then break; fi
+            echo "a deploy is in progress; waiting"; sleep 60
+          done
+      - name: CLI against the deployment
+        run: |
+          for _ in $(seq 30); do ./target/release/aiops info && break; sleep 10; done
+          ./target/release/aiops runs --limit 5
+      - name: MCP client against the deployment
+        env:
+          AIOPS_ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          ACCEPT: finished
+          TIMEOUT_S: "3000"
+        run: |
+          mode=$(grep -v '^\s*#' .github/mcp-request | grep -v '^\s*$' | tail -1)
+          if [ "$mode" = full ]; then
+            if [ -z "$AIOPS_ADMIN_TOKEN" ]; then echo "::error::Repository secret ADMIN_TOKEN is not set"; exit 1; fi
+            python3 scripts/mcp-smoke.py ./target/release/aiops --full | tee mcp.log
+          else
+            python3 scripts/mcp-smoke.py ./target/release/aiops | tee mcp.log
+          fi
+          grep '^SUMMARY:' mcp.log >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aiops-linux-x86_64
+          path: target/release/aiops

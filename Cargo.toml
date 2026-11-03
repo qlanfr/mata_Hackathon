@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/aiops-core", "apps/aiops-runner", "apps/aiopsd"]
+members = ["crates/aiops-core", "apps/aiops-runner", "apps/aiopsd", "apps/aiops-cli"]
 # The experiment target is built on its own (inside the runner), never as part of this workspace.
 exclude = ["fixtures/orders-api"]
 

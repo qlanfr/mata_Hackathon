@@ -86,6 +86,24 @@ A harness that says VERIFIED to everything would also produce the numbers above.
   - On a cold runner, cargo skipped the candidate build and the "candidate" was the original binary. This could only hide improvements, never invent one.
   - During a rollout, an old and a new orchestrator advanced the same run. A D1 lease and a compare-and-swap guard now prevent it.
 
+## Use it from a terminal or an AI agent
+
+`aiops` is a Rust CLI and MCP server for the same API. A person, a CI job or a monitoring webhook can start an experiment and get the verdict as an exit code; an AI client such as Claude Code or Cursor can do it with tool calls (`start_experiment`, `wait_for_run`, `get_trial`).
+
+```bash
+cargo install --path apps/aiops-cli
+```
+
+```bash
+aiops run --wait
+```
+
+```bash
+claude mcp add aiops -e AIOPS_ADMIN_TOKEN="$AIOPS_ADMIN_TOKEN" -- aiops mcp
+```
+
+Setup, every command and tool, and what was checked: [docs/cli-and-mcp.md](docs/cli-and-mcp.md).
+
 ## Scope and limits
 
 - **Two scenarios, both N+1.** The deployed one is hand-written; the second is a real bug in Vaultwarden, run in GitHub Actions. The gates themselves know nothing about N+1 and judge any patch the same way, but other kinds of performance problems have not been tried.
@@ -106,6 +124,7 @@ A harness that says VERIFIED to everything would also produce the numbers above.
 | `scenarios/n-plus-one` | Scenario contract, schema, seed, golden cases, load script, trap patches |
 | `edge` | Cloudflare Worker: static UI, the two containers, relays to D1, R2 and the runner, 1-minute cron, write-API auth |
 | `web` | React UI: runs, live timeline, trial result with gates, pairwise p95 chart, diff and reproduction data |
+| `apps/aiops-cli` | `aiops`: command line and MCP server over the same API |
 | `migrations` | Control DB schema, shared by D1 and local SQLite |
 
 ## Run it locally
@@ -137,6 +156,7 @@ Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back record
 ## Docs
 
 - [docs/architecture.md](docs/architecture.md): deployment, run states, one trial, the gates
+- [docs/cli-and-mcp.md](docs/cli-and-mcp.md): the `aiops` command line and MCP server
 - [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
 - [docs/real-bug-probe.md](docs/real-bug-probe.md): the loop on a real bug (Vaultwarden #1402): reproduction, every run, and the harness changes it led to
 - [docs/submission-text.md](docs/submission-text.md): project description for the submission
