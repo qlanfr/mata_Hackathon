@@ -1,0 +1,41 @@
+name: Real bug probe
+
+# Checks that a real, documented N+1 bug reproduces with the service and PostgreSQL on one
+# machine, as in the runner: Vaultwarden issue #1402, fixed by PR #2429. Builds the commit before
+# the fix and the fix commit, seeds the same vault into each and compares GET /api/sync.
+# Runs on demand or when a push changes .github/real-bug-request. Needs no secrets.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/real-bug-request
+
+concurrency:
+  group: real-bug-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build both versions and measure /api/sync
+        env:
+          OUT: ${{ github.workspace }}/.work/real-bug
+        run: |
+          scripts/real-bug/vaultwarden-probe.sh
+          cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Top queries per version
+        if: always()
+        run: for f in .work/real-bug/top-queries-*.txt; do echo "== $f"; cat "$f"; done || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-bug-probe
+          path: |
+            .work/real-bug/*.md
+            .work/real-bug/*.txt
+            .work/real-bug/*.log
+          if-no-files-found: ignore
+          include-hidden-files: true
