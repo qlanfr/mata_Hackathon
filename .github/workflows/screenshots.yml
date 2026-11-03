@@ -1,0 +1,56 @@
+name: Screenshots
+
+# Takes README screenshots of the deployed UI and commits them to docs/img. Runs on demand or when
+# a push changes .github/screenshots-request; its last non-comment line is the run to show on the
+# timeline and trial pages. Reads only public pages, so it needs no secrets.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/screenshots-request
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+env:
+  BASE_URL: https://aiops-edge.yh9365.workers.dev
+
+jobs:
+  shoot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Chromium for Playwright
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw" && cd "$RUNNER_TEMP/pw" && npm init -y > /dev/null
+          npm install --no-audit --no-fund playwright@1.56.1 > /dev/null
+          npx playwright install --with-deps chromium > /dev/null
+      - name: Wake the API
+        run: |
+          for _ in $(seq 60); do curl -fsS -m 30 "$BASE_URL/api/v1/runs" > /dev/null && exit 0; sleep 10; done
+          echo "::error::the API did not answer"; exit 1
+      - name: Take screenshots
+        run: |
+          run=$(grep -v '^\s*#' .github/screenshots-request | grep -v '^\s*$' | tail -1)
+          cp scripts/screenshots/shoot.mjs "$RUNNER_TEMP/pw/"
+          node "$RUNNER_TEMP/pw/shoot.mjs" "$BASE_URL" "$run" "$GITHUB_WORKSPACE/docs/img"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/img
+      - name: Commit the screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/img
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "Update README screenshots from the deployed UI" -m "Taken by .github/workflows/screenshots.yml from $BASE_URL."
+          git push origin "HEAD:$GITHUB_REF_NAME"

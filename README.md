@@ -10,7 +10,7 @@ A Meta model (Muse Spark 1.3, through the Meta Model API) reads operational evid
 - **Best run to open:** [`/runs/01a19da7-b2a2-70e0-af44-018eddd0c003`](https://aiops-edge.yh9365.workers.dev/runs/01a19da7-b2a2-70e0-af44-018eddd0c003). The model's first patch did not match the source, so the harness refused it before anything ran. The model read the refusal, fixed the patch, and the second one was VERIFIED.
 - **Stack:** Rust (Axum, Tokio, SQLx), React (Vite, TypeScript), Cloudflare Workers + Containers + D1 + R2, Meta Model API.
 
-![Run timeline](docs/img/ui-run.png)
+![First screen: the latest verified change, Meta model runs and the harness scorecard](docs/img/ui-runs.png)
 
 ## How one run works
 
@@ -52,6 +52,8 @@ In every VERIFIED trial:
 | p95 latency at 100 rps | about 17 ms | about 2 ms |
 | Median pairwise p95 improvement | | 87.7% to 90.1% |
 | Golden cases / sampled requests | | all passed |
+
+![A verified trial: before and after, the gates, pairwise p95 and the diff](docs/img/ui-trial.png)
 
 Every run named the same cause and proposed the same kind of fix (one batched JOIN), but the patch text was different every time. Each patch therefore had to be verified on its own.
 
