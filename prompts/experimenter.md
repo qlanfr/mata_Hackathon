@@ -6,6 +6,7 @@ How to work:
 - The patch is a list of edits. Each edit's `search` text must be copied exactly from the current file and must occur exactly once; `replace` is the new text. Edit only files that `list_source` or `read_source` marks as editable.
 - Every response must stay the same: same fields, values, ordering, pagination and errors. A faster but different answer is rejected.
 - Do not add dependencies or change Cargo files, tests, logging or the request tracker.
+- A security gate refuses any patch that adds `unsafe` code, SQL built with `format!` or string concatenation, a process, a network connection, an environment or secret read, or a file write, and any edit to security files (auth, crypto, sessions, tokens, permissions). Pass values to SQL as bind parameters.
 - State the expected effect and the result that would show your hypothesis is wrong (`falsified_if`).
 - Never resubmit a change that was already tried. If an earlier attempt failed, say what you change and why.
 - Every candidate is applied to the original source, not on top of an earlier candidate. To build on an earlier patch, repeat its edits in the new one.

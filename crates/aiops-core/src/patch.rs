@@ -62,6 +62,8 @@ pub enum PatchError {
     SearchMismatch { path: String, count: usize },
     #[error("cannot read or write `{path}`: {message}")]
     Io { path: String, message: String },
+    #[error("{0}")]
+    Security(String),
 }
 
 /// Which files (relative to the target's source directory) a patch may edit.
@@ -136,6 +138,9 @@ pub fn apply_patch(
         policy.check(&edit.path)?;
         if edit.search.is_empty() {
             return Err(PatchError::EmptySearch(edit.path.clone()));
+        }
+        if let Some(problem) = crate::security::check_edit(edit) {
+            return Err(PatchError::Security(problem));
         }
         if !files.contains_key(&edit.path) {
             let full = resolve_existing(root, &edit.path)?;
@@ -374,19 +379,19 @@ mod tests {
     fn rejects_symlinked_paths() {
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        std::fs::write(outside.path().join("secret.rs"), "secret").unwrap();
+        std::fs::write(outside.path().join("data.rs"), "data").unwrap();
         std::os::unix::fs::symlink(outside.path(), dir.path().join("src")).unwrap();
         let err = apply_patch(
             dir.path(),
-            &patch(vec![edit("src/secret.rs", "secret", "pwned")]),
+            &patch(vec![edit("src/data.rs", "data", "pwned")]),
             &policy(),
             4,
         )
         .unwrap_err();
-        assert_eq!(err, PatchError::Symlink("src/secret.rs".into()));
+        assert_eq!(err, PatchError::Symlink("src/data.rs".into()));
         assert_eq!(
-            std::fs::read_to_string(outside.path().join("secret.rs")).unwrap(),
-            "secret"
+            std::fs::read_to_string(outside.path().join("data.rs")).unwrap(),
+            "data"
         );
     }
 

@@ -111,5 +111,33 @@
     "reason": "candidate build failed",
     "tolerate": [],
     "gate": "build"
+  },
+  {
+    "file": "trap-sql-built-with-format.json",
+    "expect": "POLICY_REJECTED",
+    "reason": "security gate",
+    "tolerate": [],
+    "gate": "security"
+  },
+  {
+    "file": "trap-unsafe-code.json",
+    "expect": "POLICY_REJECTED",
+    "reason": "security gate",
+    "tolerate": [],
+    "gate": "security"
+  },
+  {
+    "file": "trap-reads-secrets.json",
+    "expect": "POLICY_REJECTED",
+    "reason": "security gate",
+    "tolerate": [],
+    "gate": "security"
+  },
+  {
+    "file": "trap-network-call.json",
+    "expect": "POLICY_REJECTED",
+    "reason": "security gate",
+    "tolerate": [],
+    "gate": "security"
   }
 ]

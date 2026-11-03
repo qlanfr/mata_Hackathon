@@ -1,0 +1,10 @@
+{
+  "summary": "Skips bounds checks with unsafe code to save time. Expected: POLICY_REJECTED by the security gate. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/repo.rs",
+      "search": "        let mut items = Vec::with_capacity(item_rows.len());",
+      "replace": "        let mut items = Vec::with_capacity(item_rows.len());\n        // Reuse the allocation without clearing it.\n        unsafe { items.set_len(0) };"
+    }
+  ]
+}
