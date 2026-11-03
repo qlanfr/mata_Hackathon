@@ -359,6 +359,26 @@ async fn baseline_inner(
     );
     timer.lap("correctness");
 
+    // Vulnerability fixes: every attack must work on the original, or there is nothing to fix.
+    // Nothing is measured under load.
+    if let Some(security) = &rt.spec.security {
+        ctl.set_phase("attacks");
+        report.exploits = crate::exploits::run(&http, &a.base_url, security).await;
+        timer.lap("attacks");
+        a.stop().await;
+        b.stop().await;
+        report.timings_ms = timings;
+        if let Some(e) = report.exploits.iter().find(|e| !e.exploited()) {
+            anyhow::bail!(
+                "attack `{}` does not work on the original service (status {}, leak {}); there is nothing to fix",
+                e.name,
+                e.status,
+                if e.leaked { "found" } else { "not found" }
+            );
+        }
+        return Ok(());
+    }
+
     ctl.set_phase("warmup");
     for svc in [&a, &b] {
         load::run(
@@ -553,6 +573,15 @@ async fn trial_inner(
     };
     timer.lap("start");
 
+    if let Some(security) = &rt.spec.security {
+        ctl.set_phase("attacks");
+        report.security = Some(aiops_core::report::SecurityReport {
+            baseline: crate::exploits::run(&http, &base.base_url, security).await,
+            candidate: crate::exploits::run(&http, &cand.base_url, security).await,
+        });
+        timer.lap("attacks");
+    }
+
     ctl.set_phase("correctness");
     let cases = correctness::load_cases(&rt.repo_path(&rt.spec.correctness.cases_dir))?;
     let base_check = correctness::check(
@@ -594,7 +623,7 @@ async fn trial_inner(
     }
     timer.lap("correctness");
 
-    if proceed && mode == TrialMode::Full {
+    if proceed && mode == TrialMode::Full && rt.spec.security.is_none() {
         ctl.set_phase("warmup");
         for svc in [&base, &cand] {
             load::run(

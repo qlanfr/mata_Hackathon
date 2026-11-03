@@ -106,9 +106,9 @@ enum Command {
     /// security gate, and write a pull request title and description.
     Apply {
         trial_id: String,
-        /// The scenario the run used.
-        #[arg(long, default_value = "scenarios/n-plus-one/scenario.toml")]
-        scenario: PathBuf,
+        /// Scenario file; by default `scenarios/<the run's scenario>/scenario.toml` under --repo.
+        #[arg(long)]
+        scenario: Option<PathBuf>,
         /// Repository root; the patch goes into the scenario's source directory under it.
         #[arg(long, default_value = ".")]
         repo: PathBuf,
@@ -271,7 +271,7 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             repo,
             body_file,
         } => {
-            let applied = apply::apply(&api, &trial_id, &scenario, &repo).await?;
+            let applied = apply::apply(&api, &trial_id, scenario.as_deref(), &repo).await?;
             if let Some(path) = &body_file {
                 std::fs::write(path, applied["body"].as_str().unwrap_or_default())?;
             }

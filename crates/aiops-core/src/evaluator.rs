@@ -75,6 +75,84 @@ pub fn aa_noise(baseline: &BaselineReport) -> Option<f64> {
     median(&diffs)
 }
 
+/// The verdict on a vulnerability fix whose responses are already known to be unchanged:
+/// every attack must work on the original (or the scenario cannot judge anything), and none may
+/// work on the candidate, including the attacks held out from the model. An attack answered with
+/// a server error is not refused cleanly. Held-out attacks are never named, because the reasons
+/// go back to the model.
+pub fn security_verdict(security: &crate::report::SecurityReport) -> (Outcome, String) {
+    let (base, cand) = (&security.baseline, &security.candidate);
+    if base.is_empty() || base.len() != cand.len() {
+        return (
+            Outcome::ExecutionError,
+            "the attacks were not sent to both services".into(),
+        );
+    }
+    let label = |e: &crate::report::ExploitResult| {
+        if e.held_out {
+            "a held-out attack (not shown to the model)".to_owned()
+        } else {
+            format!("attack `{}`", e.name)
+        }
+    };
+    if let Some(e) = base.iter().find(|e| !e.exploited()) {
+        return (
+            Outcome::ExecutionError,
+            format!(
+                "{} does not work on the original service (status {}, leak {}); this scenario cannot judge a fix",
+                label(e),
+                e.status,
+                if e.leaked { "found" } else { "not found" }
+            ),
+        );
+    }
+    let open: Vec<_> = cand.iter().filter(|e| e.exploited()).collect();
+    if let Some(e) = open.iter().find(|e| !e.held_out) {
+        return (
+            Outcome::Rejected,
+            format!(
+                "{} still works on the candidate: status {} and the response contains the data it must not reveal ({} of {} attacks still work)",
+                label(e),
+                e.status,
+                open.len(),
+                cand.len()
+            ),
+        );
+    }
+    if !open.is_empty() {
+        let held = cand.iter().filter(|e| e.held_out).count();
+        return (
+            Outcome::Rejected,
+            format!(
+                "{} of {held} held-out attacks (variants not shown to the model) still work: the change refuses the reported requests, not the vulnerability",
+                open.len()
+            ),
+        );
+    }
+    if let Some(e) = cand.iter().find(|e| e.errored()) {
+        return (
+            Outcome::Rejected,
+            format!(
+                "{} is answered with {} on the candidate; a fix must refuse an attack cleanly, not fail",
+                label(e),
+                if e.status == 0 {
+                    "no response".to_owned()
+                } else {
+                    format!("server error {}", e.status)
+                }
+            ),
+        );
+    }
+    let held = cand.iter().filter(|e| e.held_out).count();
+    (
+        Outcome::Verified,
+        format!(
+            "every attack is blocked ({} reported, {held} held out) and every checked response is unchanged",
+            cand.len() - held
+        ),
+    )
+}
+
 pub fn median(values: &[f64]) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -267,6 +345,12 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
             Outcome::Rejected,
             format!("candidate process died: {crash}"),
         );
+    }
+
+    // Vulnerability fixes are judged on the attacks, after correctness. Nothing is measured.
+    if let Some(security) = &report.security {
+        let (outcome, reason) = security_verdict(security);
+        return decide(eval, outcome, reason);
     }
 
     // Gate 3: is the measurement trustworthy?
@@ -541,6 +625,103 @@ mod tests {
             pairs,
             ..Default::default()
         }
+    }
+
+    fn attack(
+        name: &str,
+        held_out: bool,
+        status: u16,
+        leaked: bool,
+    ) -> crate::report::ExploitResult {
+        crate::report::ExploitResult {
+            name: name.into(),
+            path: format!("/x?q={name}"),
+            held_out,
+            status,
+            leaked,
+            excerpt: String::new(),
+        }
+    }
+
+    /// A vulnerability-fix trial: both attacks work on the original; `cand` gives the candidate's
+    /// (status, leaked) for the shown and the held-out attack.
+    fn security_report(cand: [(u16, bool); 2]) -> TrialReport {
+        TrialReport {
+            security: Some(crate::report::SecurityReport {
+                baseline: vec![
+                    attack("shown", false, 200, true),
+                    attack("hidden", true, 200, true),
+                ],
+                candidate: vec![
+                    attack("shown", false, cand[0].0, cand[0].1),
+                    attack("hidden", true, cand[1].0, cand[1].1),
+                ],
+            }),
+            ..report(vec![])
+        }
+    }
+
+    #[test]
+    fn security_fix_is_judged_on_the_attacks() {
+        // Blocked: a clean empty answer or a 4xx, and no pairs needed.
+        let e = evaluate(
+            &contract(),
+            &security_report([(200, false), (400, false)]),
+            None,
+        );
+        assert_eq!(e.outcome, Outcome::Verified, "{:?}", e.reasons);
+        assert!(
+            e.reasons[0].contains("1 reported, 1 held out"),
+            "{:?}",
+            e.reasons
+        );
+
+        let e = evaluate(
+            &contract(),
+            &security_report([(200, true), (200, false)]),
+            None,
+        );
+        assert_eq!(e.outcome, Outcome::Rejected);
+        assert!(
+            e.reasons[0].contains("attack `shown` still works"),
+            "{:?}",
+            e.reasons
+        );
+
+        // Only the held-out variant gets through: rejected without naming it.
+        let e = evaluate(
+            &contract(),
+            &security_report([(200, false), (200, true)]),
+            None,
+        );
+        assert_eq!(e.outcome, Outcome::Rejected);
+        assert!(e.reasons[0].contains("held-out"), "{:?}", e.reasons);
+        assert!(!e.reasons[0].contains("hidden"), "{:?}", e.reasons);
+
+        let e = evaluate(
+            &contract(),
+            &security_report([(500, false), (404, false)]),
+            None,
+        );
+        assert_eq!(e.outcome, Outcome::Rejected);
+        assert!(e.reasons[0].contains("server error 500"), "{:?}", e.reasons);
+    }
+
+    #[test]
+    fn security_fix_needs_correctness_and_a_working_attack() {
+        let mut r = security_report([(200, false), (200, false)]);
+        r.correctness = Some(correctness(false));
+        assert_eq!(evaluate(&contract(), &r, None).outcome, Outcome::Rejected);
+
+        let mut r = security_report([(200, false), (200, false)]);
+        r.security.as_mut().unwrap().baseline[1].leaked = false;
+        let e = evaluate(&contract(), &r, None);
+        assert_eq!(e.outcome, Outcome::ExecutionError);
+        assert!(
+            e.reasons[0].contains("does not work on the original"),
+            "{:?}",
+            e.reasons
+        );
     }
 
     #[test]

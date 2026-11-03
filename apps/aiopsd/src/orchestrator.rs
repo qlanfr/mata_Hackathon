@@ -739,6 +739,7 @@ impl App {
                 "artifact_id": artifact_id, "aa_noise": aa,
                 "aa_pairs": report.aa_pairs.iter().map(|p| json!({ "a_p95_ms": p.baseline.p95_ms, "b_p95_ms": p.candidate.p95_ms, "dropped": p.baseline.dropped + p.candidate.dropped })).collect::<Vec<_>>(),
                 "logs": report.logs, "correctness": correctness, "env": report.env, "timings_ms": report.timings_ms,
+                "exploits": report.exploits.iter().map(|e| json!({ "name": e.name, "held_out": e.held_out, "status": e.status, "worked": e.exploited() })).collect::<Vec<_>>(),
             }),
         )
         .await?;
@@ -1069,8 +1070,10 @@ impl App {
         let outcome = last.str("outcome");
         let evaluation = last.json("evaluation");
         if outcome == "VERIFIED" {
-            let median = evaluation["median_improvement"].as_f64().unwrap_or(0.0);
-            let summary = format!("Trial {} verified: median p95 improvement {:.1}% with all golden cases passing. {}", last.i64("seq"), median * 100.0, last.str("hypothesis"));
+            let summary = match evaluation["median_improvement"].as_f64() {
+                Some(median) if self.spec.security.is_none() => format!("Trial {} verified: median p95 improvement {:.1}% with all golden cases passing. {}", last.i64("seq"), median * 100.0, last.str("hypothesis")),
+                _ => format!("Trial {} verified: {}. {}", last.i64("seq"), evaluation["reasons"][0].as_str().unwrap_or("accepted"), last.str("hypothesis")),
+            };
             self.transition(
                 run,
                 "COMPLETED",
@@ -1219,6 +1222,19 @@ impl App {
     // Messages for the model roles
 
     fn observer_message(&self, run: &Run) -> String {
+        if let Some(security) = &self.spec.security {
+            return format!(
+                "Scenario: {} — {}\nGoal: {}\n\
+                 Acceptance contract (fixed; nobody in this run can change it): a fix is accepted only if every reported attack ({}) \
+                 and {} further held-out attacks stop working, each is refused cleanly, and every golden response stays identical.\n\
+                 Read the vulnerability report and the code, then answer.",
+                self.spec.id,
+                self.spec.description,
+                run.goal,
+                security.exploits.len(),
+                security.held_out.len(),
+            );
+        }
         let c = &self.spec.contract;
         format!(
             "Scenario: {} — {}\nGoal: {}\nLoad: {} at a fixed {} requests per second.\n\
@@ -1236,6 +1252,22 @@ impl App {
     }
 
     fn experimenter_message(&self, run: &Run, observation: &Value, tried: u32) -> String {
+        if let Some(security) = &self.spec.security {
+            return format!(
+                "Goal: {}\nObservation from the observation role (JSON):\n{}\n\n\
+                 Editable paths (relative to the service root): {:?}. Protected paths: {:?}. At most {} edits.\n\
+                 Acceptance contract: every reported attack ({}) and {} held-out attacks refused cleanly, every golden response identical.\n\
+                 Candidates already tried in this run: {tried} (candidate budget {}). Read them with read_trial_result before proposing another.",
+                run.goal,
+                serde_json::to_string_pretty(observation).unwrap_or_default(),
+                self.spec.target.allowed_paths,
+                self.spec.target.denied_paths,
+                self.spec.target.max_edits,
+                security.exploits.len(),
+                security.held_out.len(),
+                run.budget.max_candidates,
+            );
+        }
         let c = &self.spec.contract;
         format!(
             "Goal: {}\nObservation from the observation role (JSON):\n{}\n\n\

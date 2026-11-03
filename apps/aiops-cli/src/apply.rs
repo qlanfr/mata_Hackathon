@@ -17,7 +17,7 @@ use crate::report;
 pub async fn apply(
     api: &Api,
     trial_id: &str,
-    scenario: &Path,
+    scenario: Option<&Path>,
     repo: &Path,
 ) -> anyhow::Result<Value> {
     let detail = api.trial(trial_id).await?;
@@ -35,9 +35,21 @@ pub async fn apply(
         "the patch returned by the API does not match the hash of the patch that was measured"
     );
 
-    let spec = ScenarioSpec::load(scenario)?;
     let run_id = trial["run_id"].as_str().unwrap_or_default().to_owned();
     let run = api.run(&run_id).await?;
+    // The scenario the run used, unless another file is named.
+    let scenario = match scenario {
+        Some(path) => path.to_path_buf(),
+        None => {
+            let id = run["run"]["scenario_id"].as_str().unwrap_or_default();
+            anyhow::ensure!(
+                !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+                "the run names no usable scenario; pass --scenario"
+            );
+            repo.join("scenarios").join(id).join("scenario.toml")
+        }
+    };
+    let spec = ScenarioSpec::load(&scenario)?;
     let scenario_hash = run["run"]["scenario_hash"].as_str().unwrap_or_default();
     let same_scenario = scenario_hash == spec.content_hash();
 
@@ -55,7 +67,12 @@ pub async fn apply(
 
     let summary = report::trial_summary(api, trial_id, 0).await?;
     let title = format!(
-        "perf({}): {}",
+        "{}({}): {}",
+        if spec.security.is_some() {
+            "fix"
+        } else {
+            "perf"
+        },
         spec.id,
         first_line(patch.summary.as_str(), 72)
     );
@@ -108,28 +125,44 @@ fn pr_body(
         .unwrap_or_else(|| "-".into());
     let mut out = String::new();
     out.push_str(&format!(
-        "{}\n\nThis change was proposed by a model and **VERIFIED by the Rust harness**: built in an isolated runner, checked against the original service's responses, and measured against the unchanged service in alternating pairs. The model did not judge its own patch.\n\n",
+        "{}\n\nThis change was proposed by a model and **VERIFIED by the Rust harness**: built in an isolated runner, checked against the original service's responses, and then measured against the unchanged service (performance) or attacked (vulnerability fix). The model did not judge its own patch.\n\n",
         patch.summary.trim()
     ));
     out.push_str(&format!(
         "**Hypothesis:** {}\n\n",
         s["hypothesis"].as_str().unwrap_or("-")
     ));
-    out.push_str("| | Before | After |\n| --- | --- | --- |\n");
-    out.push_str(&format!(
-        "| p95 latency (mean of pairs) | {} ms | {} ms |\n",
-        num(&m["p95_ms"]["baseline"], 1),
-        num(&m["p95_ms"]["candidate"], 1)
-    ));
-    out.push_str(&format!(
-        "| SQL statements per request | {} | {} |\n",
-        num(&m["sql_per_request"]["baseline"], 1),
-        num(&m["sql_per_request"]["candidate"], 1)
-    ));
-    out.push_str(&format!(
-        "| Median pairwise p95 improvement | | {} (pairs {pairs}) |\n\n",
-        pct(&s["median_p95_improvement"])
-    ));
+    let a = &m["attacks"];
+    if a.is_object() {
+        out.push_str("| Attack requests | Original | This change |\n| --- | --- | --- |\n");
+        out.push_str(&format!(
+            "| Worked (returned data the caller must not get) | {} of {} | {} of {} |\n",
+            a["worked_on_original"],
+            a["total"],
+            a["total"].as_u64().unwrap_or(0) - a["blocked_on_candidate"].as_u64().unwrap_or(0),
+            a["total"],
+        ));
+        out.push_str(&format!(
+            "\n{} of the attacks were held out: never shown to the model, so a change that only filters the reported requests fails them.\n\n",
+            a["held_out"]
+        ));
+    } else {
+        out.push_str("| | Before | After |\n| --- | --- | --- |\n");
+        out.push_str(&format!(
+            "| p95 latency (mean of pairs) | {} ms | {} ms |\n",
+            num(&m["p95_ms"]["baseline"], 1),
+            num(&m["p95_ms"]["candidate"], 1)
+        ));
+        out.push_str(&format!(
+            "| SQL statements per request | {} | {} |\n",
+            num(&m["sql_per_request"]["baseline"], 1),
+            num(&m["sql_per_request"]["candidate"], 1)
+        ));
+        out.push_str(&format!(
+            "| Median pairwise p95 improvement | | {} (pairs {pairs}) |\n\n",
+            pct(&s["median_p95_improvement"])
+        ));
+    }
     out.push_str(&format!(
         "Correctness: golden {} · invariants {} · sampled requests {}\n\n",
         m["golden"].as_str().unwrap_or("-"),

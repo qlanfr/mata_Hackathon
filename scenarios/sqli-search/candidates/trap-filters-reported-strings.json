@@ -1,0 +1,10 @@
+{
+  "summary": "Refuses queries that contain the reported attack strings (' OR ', 'UNION') and leaves the SQL as it is. Expected: REJECTED by the held-out attacks. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/search.rs",
+      "search": "    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;",
+      "replace": "    if query.contains(\" OR \") || query.contains(\"UNION\") {\n        return Ok(Vec::new());\n    }\n    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;"
+    }
+  ]
+}

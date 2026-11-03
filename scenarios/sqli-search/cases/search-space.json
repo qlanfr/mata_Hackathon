@@ -1,0 +1,78 @@
+{
+  "name": "search-space",
+  "request": {
+    "path": "/products/search?q=desk%2000"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "products": [
+        {
+          "id": 1,
+          "name": "desk 0001",
+          "price_cents": 137
+        },
+        {
+          "id": 9,
+          "name": "desk 0009",
+          "price_cents": 433
+        },
+        {
+          "id": 17,
+          "name": "desk 0017",
+          "price_cents": 729
+        },
+        {
+          "id": 25,
+          "name": "desk 0025",
+          "price_cents": 1025
+        },
+        {
+          "id": 33,
+          "name": "desk 0033",
+          "price_cents": 1321
+        },
+        {
+          "id": 41,
+          "name": "desk 0041",
+          "price_cents": 1617
+        },
+        {
+          "id": 49,
+          "name": "desk 0049",
+          "price_cents": 1913
+        },
+        {
+          "id": 57,
+          "name": "desk 0057",
+          "price_cents": 2209
+        },
+        {
+          "id": 65,
+          "name": "desk 0065",
+          "price_cents": 2505
+        },
+        {
+          "id": 73,
+          "name": "desk 0073",
+          "price_cents": 2801
+        },
+        {
+          "id": 81,
+          "name": "desk 0081",
+          "price_cents": 3097
+        },
+        {
+          "id": 89,
+          "name": "desk 0089",
+          "price_cents": 3393
+        },
+        {
+          "id": 97,
+          "name": "desk 0097",
+          "price_cents": 3689
+        }
+      ]
+    }
+  }
+}

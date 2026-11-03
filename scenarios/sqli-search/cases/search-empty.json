@@ -1,0 +1,113 @@
+{
+  "name": "search-empty",
+  "request": {
+    "path": "/products/search?q="
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "products": [
+        {
+          "id": 1,
+          "name": "desk 0001",
+          "price_cents": 137
+        },
+        {
+          "id": 2,
+          "name": "lamp 0002",
+          "price_cents": 174
+        },
+        {
+          "id": 3,
+          "name": "mug 0003",
+          "price_cents": 211
+        },
+        {
+          "id": 4,
+          "name": "cable 0004",
+          "price_cents": 248
+        },
+        {
+          "id": 5,
+          "name": "monitor 0005",
+          "price_cents": 285
+        },
+        {
+          "id": 6,
+          "name": "keyboard 0006",
+          "price_cents": 322
+        },
+        {
+          "id": 7,
+          "name": "mouse 0007",
+          "price_cents": 359
+        },
+        {
+          "id": 8,
+          "name": "chair 0008",
+          "price_cents": 396
+        },
+        {
+          "id": 9,
+          "name": "desk 0009",
+          "price_cents": 433
+        },
+        {
+          "id": 10,
+          "name": "lamp 0010",
+          "price_cents": 470
+        },
+        {
+          "id": 11,
+          "name": "mug 0011",
+          "price_cents": 507
+        },
+        {
+          "id": 12,
+          "name": "cable 0012",
+          "price_cents": 544
+        },
+        {
+          "id": 13,
+          "name": "monitor 0013",
+          "price_cents": 581
+        },
+        {
+          "id": 14,
+          "name": "keyboard 0014",
+          "price_cents": 618
+        },
+        {
+          "id": 15,
+          "name": "mouse 0015",
+          "price_cents": 655
+        },
+        {
+          "id": 16,
+          "name": "chair 0016",
+          "price_cents": 692
+        },
+        {
+          "id": 17,
+          "name": "desk 0017",
+          "price_cents": 729
+        },
+        {
+          "id": 18,
+          "name": "lamp 0018",
+          "price_cents": 766
+        },
+        {
+          "id": 19,
+          "name": "mug 0019",
+          "price_cents": 803
+        },
+        {
+          "id": 20,
+          "name": "cable 0020",
+          "price_cents": 840
+        }
+      ]
+    }
+  }
+}

@@ -19,6 +19,45 @@ pub struct ScenarioSpec {
     pub load: LoadSpec,
     pub contract: Contract,
     pub budget: Budget,
+    /// Vulnerability-fix scenarios: attack requests that work on the original service and must
+    /// stop working on a candidate. These are judged on the attacks and on correctness; no load is
+    /// measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security: Option<SecuritySpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SecuritySpec {
+    /// The vulnerability report the model reads, like a security advisory or a pen-test finding.
+    pub advisory: String,
+    /// Attacks shown to the model, with their results on the original service.
+    pub exploits: Vec<Exploit>,
+    /// Attacks never shown to the model. A fix that only refuses the reported requests, not the
+    /// vulnerability, fails these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_out: Vec<Exploit>,
+}
+
+/// One attack request and the evidence that it worked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Exploit {
+    pub name: String,
+    /// Request path with its URL-encoded query.
+    pub path: String,
+    /// Text in the response body that shows the attack worked: data this caller must not get.
+    pub leak: String,
+}
+
+impl SecuritySpec {
+    /// Shown attacks first, then the held-out ones, each with whether it is held out.
+    pub fn all(&self) -> impl Iterator<Item = (&Exploit, bool)> {
+        self.exploits
+            .iter()
+            .map(|e| (e, false))
+            .chain(self.held_out.iter().map(|e| (e, true)))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -191,6 +230,25 @@ impl ScenarioSpec {
     }
 
     fn validate(&self) -> anyhow::Result<()> {
+        if let Some(security) = &self.security {
+            anyhow::ensure!(
+                !security.exploits.is_empty(),
+                "security.exploits must not be empty"
+            );
+            let mut names = std::collections::BTreeSet::new();
+            for (e, _) in security.all() {
+                anyhow::ensure!(
+                    names.insert(e.name.as_str()),
+                    "security exploit `{}` is listed twice",
+                    e.name
+                );
+                anyhow::ensure!(
+                    e.path.starts_with('/') && !e.leak.is_empty(),
+                    "security exploit `{}` needs a path starting with / and a non-empty leak",
+                    e.name
+                );
+            }
+        }
         anyhow::ensure!(
             self.contract.pairs >= 1,
             "contract.pairs must be at least 1"

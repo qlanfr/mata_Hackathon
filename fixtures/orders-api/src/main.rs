@@ -1,10 +1,12 @@
-//! Order list API for one user: `GET /users/{user_id}/orders?limit=&offset=`.
+//! Order list API for one user: `GET /users/{user_id}/orders?limit=&offset=`, and product search:
+//! `GET /products/search?q=`.
 //!
 //! Every request writes one JSON line to stdout with its SQL count and DB time. The runner
 //! collects these lines as observation evidence.
 
 mod model;
 mod repo;
+mod search;
 mod tracker;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -44,6 +46,7 @@ async fn main() {
     let app = Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/users/{user_id}/orders", get(list_orders))
+        .route("/products/search", get(search_products))
         .layer(middleware::from_fn(request_log))
         .with_state(AppState { pool });
 
@@ -94,6 +97,25 @@ async fn list_orders(
     };
     match repo::load_order_details(&state.pool, &tracker, rows).await {
         Ok(orders) => Json(OrderPage { user_id, limit, offset, orders }).into_response(),
+        Err(e) => internal(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct SearchParams {
+    q: String,
+}
+
+async fn search_products(
+    State(state): State<AppState>,
+    Extension(tracker): Extension<Tracker>,
+    Query(params): Query<SearchParams>,
+) -> Response {
+    if params.q.chars().count() > 100 {
+        return error(StatusCode::BAD_REQUEST, "query_too_long");
+    }
+    match search::search_products(&state.pool, &tracker, &params.q).await {
+        Ok(products) => Json(serde_json::json!({ "products": products })).into_response(),
         Err(e) => internal(e),
     }
 }

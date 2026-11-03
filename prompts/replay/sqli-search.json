@@ -1,0 +1,133 @@
+{
+  "_note": "Scripted replay for development and demos without a Meta API key. Runs that use it are labelled 'replay'. The first candidate is a deliberately naive filter of the reported strings, so that the held-out attacks are exercised; the second binds the pattern. Neither is model output.",
+  "observer": [
+    [
+      {
+        "type": "call",
+        "name": "read_vulnerability_report",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "list_source",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/search.rs"
+        }
+      },
+      {
+        "type": "answer",
+        "content": {
+          "facts": [
+            {
+              "statement": "The reported attack requests return products that do not match the query, and user email addresses, from the original service.",
+              "evidence": [
+                "exploit:or-always-true",
+                "exploit:union-user-emails"
+              ]
+            },
+            {
+              "statement": "search_products builds its SQL text with format!, placing the query inside a quoted ILIKE pattern.",
+              "evidence": [
+                "src:src/search.rs"
+              ]
+            }
+          ],
+          "hypotheses": [
+            {
+              "statement": "The query text is interpolated into the SQL string, so a quote ends the literal and the rest of the query is parsed as SQL; binding the pattern as a parameter removes the injection.",
+              "confidence": "high"
+            }
+          ],
+          "affected_path": "GET /products/search -> search::search_products",
+          "missing_information": [
+            "Whether other endpoints build SQL the same way"
+          ],
+          "priority": "Stop interpolating the search query into SQL text without changing ordinary search results."
+        }
+      }
+    ]
+  ],
+  "experimenter": [
+    [
+      {
+        "type": "call",
+        "name": "read_vulnerability_report",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/search.rs"
+        }
+      },
+      {
+        "type": "answer",
+        "content": {
+          "action": "experiment",
+          "hypothesis": "Refusing queries that contain the reported attack strings stops the injection.",
+          "evidence": [
+            "exploit:or-always-true",
+            "exploit:union-user-emails"
+          ],
+          "expected_effect": "The reported attacks return no products.",
+          "falsified_if": "Any attack still returns data, or any golden response changes.",
+          "patch": {
+            "summary": "Refuses queries that contain the reported attack strings (' OR ', 'UNION') and leaves the SQL as it is.",
+            "edits": [
+              {
+                "path": "src/search.rs",
+                "search": "    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;",
+                "replace": "    if query.contains(\" OR \") || query.contains(\"UNION\") {\n        return Ok(Vec::new());\n    }\n    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;"
+              }
+            ]
+          },
+          "stop_reason": null
+        }
+      }
+    ],
+    [
+      {
+        "type": "call",
+        "name": "read_trial_result",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/search.rs"
+        }
+      },
+      {
+        "type": "answer",
+        "content": {
+          "action": "experiment",
+          "hypothesis": "The query is interpolated into the SQL text; passing the ILIKE pattern as a bind parameter fixes the cause, so every variant of the attack fails.",
+          "evidence": [
+            "exploit:or-always-true",
+            "src:src/search.rs"
+          ],
+          "expected_effect": "Every attack, including variants, returns no products; ordinary searches return the same results.",
+          "falsified_if": "Any attack still returns data or a server error, or any golden response changes.",
+          "patch": {
+            "summary": "Pass the search pattern as a bind parameter instead of placing the query in the SQL text.",
+            "edits": [
+              {
+                "path": "src/search.rs",
+                "search": "    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;",
+                "replace": "    let pattern = format!(\"%{query}%\");\n    let rows = tracker\n        .run(\n            sqlx::query(\n                \"SELECT id, name, price_cents FROM products WHERE name ILIKE $1 ORDER BY id LIMIT 20\",\n            )\n            .bind(pattern)\n            .fetch_all(pool),\n        )\n        .await?;"
+              }
+            ]
+          },
+          "stop_reason": null
+        }
+      }
+    ]
+  ]
+}

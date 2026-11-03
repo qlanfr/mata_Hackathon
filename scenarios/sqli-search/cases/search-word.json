@@ -1,0 +1,113 @@
+{
+  "name": "search-word",
+  "request": {
+    "path": "/products/search?q=lamp"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "products": [
+        {
+          "id": 2,
+          "name": "lamp 0002",
+          "price_cents": 174
+        },
+        {
+          "id": 10,
+          "name": "lamp 0010",
+          "price_cents": 470
+        },
+        {
+          "id": 18,
+          "name": "lamp 0018",
+          "price_cents": 766
+        },
+        {
+          "id": 26,
+          "name": "lamp 0026",
+          "price_cents": 1062
+        },
+        {
+          "id": 34,
+          "name": "lamp 0034",
+          "price_cents": 1358
+        },
+        {
+          "id": 42,
+          "name": "lamp 0042",
+          "price_cents": 1654
+        },
+        {
+          "id": 50,
+          "name": "lamp 0050",
+          "price_cents": 1950
+        },
+        {
+          "id": 58,
+          "name": "lamp 0058",
+          "price_cents": 2246
+        },
+        {
+          "id": 66,
+          "name": "lamp 0066",
+          "price_cents": 2542
+        },
+        {
+          "id": 74,
+          "name": "lamp 0074",
+          "price_cents": 2838
+        },
+        {
+          "id": 82,
+          "name": "lamp 0082",
+          "price_cents": 3134
+        },
+        {
+          "id": 90,
+          "name": "lamp 0090",
+          "price_cents": 3430
+        },
+        {
+          "id": 98,
+          "name": "lamp 0098",
+          "price_cents": 3726
+        },
+        {
+          "id": 106,
+          "name": "lamp 0106",
+          "price_cents": 4022
+        },
+        {
+          "id": 114,
+          "name": "lamp 0114",
+          "price_cents": 4318
+        },
+        {
+          "id": 122,
+          "name": "lamp 0122",
+          "price_cents": 4614
+        },
+        {
+          "id": 130,
+          "name": "lamp 0130",
+          "price_cents": 4910
+        },
+        {
+          "id": 138,
+          "name": "lamp 0138",
+          "price_cents": 5206
+        },
+        {
+          "id": 146,
+          "name": "lamp 0146",
+          "price_cents": 5502
+        },
+        {
+          "id": 154,
+          "name": "lamp 0154",
+          "price_cents": 5798
+        }
+      ]
+    }
+  }
+}

@@ -75,12 +75,9 @@ struct Opts {
     meta_base_url: String,
     #[arg(long, env = "META_MODEL", default_value = "")]
     meta_model: String,
-    #[arg(
-        long,
-        env = "AIOPS_REPLAY_SCRIPT",
-        default_value = "prompts/replay/n-plus-one.json"
-    )]
-    replay_script: PathBuf,
+    /// Recorded answers for the replay provider; `prompts/replay/<scenario id>.json` if not set.
+    #[arg(long, env = "AIOPS_REPLAY_SCRIPT")]
+    replay_script: Option<PathBuf>,
     #[arg(long, env = "AIOPS_MIGRATIONS", default_value = "migrations")]
     migrations: PathBuf,
     /// Interval of the in-process tick. The Worker's cron tick covers sleeps and restarts.
@@ -154,7 +151,11 @@ async fn main() -> anyhow::Result<()> {
             &opts.meta_model,
         )?),
         ("replay", _) | ("auto", false) => {
-            Provider::Replay(ReplayProvider::load(&repo_root.join(&opts.replay_script))?)
+            let script = opts
+                .replay_script
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(format!("prompts/replay/{}.json", spec.id)));
+            Provider::Replay(ReplayProvider::load(&repo_root.join(script))?)
         }
         (other, _) => anyhow::bail!("unknown provider `{other}`"),
     };

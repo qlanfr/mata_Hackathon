@@ -268,6 +268,9 @@ impl App {
             .unwrap_or_default();
         let headline = match (state, improvement) {
             ("COMPLETED", Some(i)) => format!("VERIFIED: p95 improved {:.1}%", i * 100.0),
+            ("COMPLETED", None) if verified.is_some() && self.spec.security.is_some() => {
+                "VERIFIED: every attack blocked, responses unchanged".to_owned()
+            }
             ("COMPLETED", None) => "completed".to_owned(),
             ("EXHAUSTED", _) => "no verified change".to_owned(),
             ("FAILED", _) => "failed".to_owned(),

@@ -1,0 +1,10 @@
+{
+  "summary": "Fails every query that contains a quote with a database error, so attacks get a 500. Expected: REJECTED (an attack must be refused cleanly). Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/search.rs",
+      "search": "    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;",
+      "replace": "    if query.contains('\\'') {\n        return Err(sqlx::Error::Protocol(\"quote in search query\".into()));\n    }\n    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;"
+    }
+  ]
+}

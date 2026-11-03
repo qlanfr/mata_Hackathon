@@ -1,0 +1,37 @@
+[
+ {
+  "file": "known-good-bind-parameter.json",
+  "expect": "VERIFIED",
+  "reason": "every attack is blocked",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-filters-reported-strings.json",
+  "expect": "REJECTED",
+  "reason": "held-out attacks",
+  "tolerate": [],
+  "gate": "held-out"
+ },
+ {
+  "file": "trap-server-error-on-quote.json",
+  "expect": "REJECTED",
+  "reason": "server error 500",
+  "tolerate": [],
+  "gate": "clean-refusal"
+ },
+ {
+  "file": "trap-breaks-wildcards.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "trap-no-fix.json",
+  "expect": "REJECTED",
+  "reason": "attack `or-always-true` still works",
+  "tolerate": [],
+  "gate": "security"
+ }
+]

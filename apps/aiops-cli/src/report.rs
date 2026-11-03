@@ -43,6 +43,35 @@ pub fn measurements(report: &Value) -> Value {
         "invariants": checks("invariants"),
         "sample": checks("sample"),
         "build_ms": report["build"]["duration_ms"],
+        "attacks": attacks(report),
+    })
+}
+
+/// Vulnerability-fix trials: how many attacks worked on the original and how many the candidate
+/// blocked. `null` for performance trials.
+fn attacks(report: &Value) -> Value {
+    let Some(security) = report["security"].as_object() else {
+        return Value::Null;
+    };
+    let worked = |e: &Value| {
+        e["status"]
+            .as_u64()
+            .is_some_and(|s| (200..300).contains(&s))
+            && e["leaked"] == true
+    };
+    let side = |key: &str| {
+        security
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let (base, cand) = (side("baseline"), side("candidate"));
+    json!({
+        "total": cand.len(),
+        "held_out": cand.iter().filter(|e| e["held_out"] == true).count(),
+        "worked_on_original": base.iter().filter(|e| worked(e)).count(),
+        "blocked_on_candidate": cand.iter().filter(|e| !worked(e)).count(),
     })
 }
 
@@ -133,7 +162,14 @@ pub fn run_text(s: &Value) -> String {
         ));
     }
     let m = &s["verified_measurements"];
-    if m.is_object() {
+    if m["attacks"].is_object() {
+        let a = &m["attacks"];
+        out.push(format!(
+            "  attacks: {} of {} blocked ({} held out from the model; {} worked on the original) | golden {}",
+            a["blocked_on_candidate"], a["total"], a["held_out"], a["worked_on_original"],
+            m["golden"].as_str().unwrap_or("-"),
+        ));
+    } else if m.is_object() {
         let num = |v: &Value, unit: &str| {
             v.as_f64()
                 .map(|x| format!("{x:.1}{unit}"))

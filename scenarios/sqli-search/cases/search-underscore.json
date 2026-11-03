@@ -1,0 +1,113 @@
+{
+  "name": "search-underscore",
+  "request": {
+    "path": "/products/search?q=mug_0"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "products": [
+        {
+          "id": 3,
+          "name": "mug 0003",
+          "price_cents": 211
+        },
+        {
+          "id": 11,
+          "name": "mug 0011",
+          "price_cents": 507
+        },
+        {
+          "id": 19,
+          "name": "mug 0019",
+          "price_cents": 803
+        },
+        {
+          "id": 27,
+          "name": "mug 0027",
+          "price_cents": 1099
+        },
+        {
+          "id": 35,
+          "name": "mug 0035",
+          "price_cents": 1395
+        },
+        {
+          "id": 43,
+          "name": "mug 0043",
+          "price_cents": 1691
+        },
+        {
+          "id": 51,
+          "name": "mug 0051",
+          "price_cents": 1987
+        },
+        {
+          "id": 59,
+          "name": "mug 0059",
+          "price_cents": 2283
+        },
+        {
+          "id": 67,
+          "name": "mug 0067",
+          "price_cents": 2579
+        },
+        {
+          "id": 75,
+          "name": "mug 0075",
+          "price_cents": 2875
+        },
+        {
+          "id": 83,
+          "name": "mug 0083",
+          "price_cents": 3171
+        },
+        {
+          "id": 91,
+          "name": "mug 0091",
+          "price_cents": 3467
+        },
+        {
+          "id": 99,
+          "name": "mug 0099",
+          "price_cents": 3763
+        },
+        {
+          "id": 107,
+          "name": "mug 0107",
+          "price_cents": 4059
+        },
+        {
+          "id": 115,
+          "name": "mug 0115",
+          "price_cents": 4355
+        },
+        {
+          "id": 123,
+          "name": "mug 0123",
+          "price_cents": 4651
+        },
+        {
+          "id": 131,
+          "name": "mug 0131",
+          "price_cents": 4947
+        },
+        {
+          "id": 139,
+          "name": "mug 0139",
+          "price_cents": 5243
+        },
+        {
+          "id": 147,
+          "name": "mug 0147",
+          "price_cents": 5539
+        },
+        {
+          "id": 155,
+          "name": "mug 0155",
+          "price_cents": 5835
+        }
+      ]
+    }
+  }
+}

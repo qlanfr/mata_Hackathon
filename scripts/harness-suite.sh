@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Runs every candidate listed in scenarios/n-plus-one/candidates/suite.json through the runner and
+# Runs every candidate listed in scenarios/<scenario>/candidates/suite.json through the runner and
 # checks each verdict, and the reason that decided it, against the expected ones. The candidates
 # are hand-written harness checks, not model output: each one targets a single gate of the
-# evaluator (policy, build, correctness, errors under load, improvement).
+# evaluator (policy, build, correctness, errors under load, improvement, attacks).
 #
 # Every trial starts cold, like a freshly started runner: the docker mode uses a new container per
 # candidate, and the local mode a new work directory (only the cargo target directory is shared).
@@ -12,28 +12,32 @@
 #   scripts/harness-suite.sh                                  # local runner binary
 #   RUNNER_IMAGE=aiops-runner:local scripts/harness-suite.sh  # inside the runner image, no network
 #   ONLY=trap-slower scripts/harness-suite.sh                 # entries whose file name contains this
+#   SCENARIO=sqli-search scripts/harness-suite.sh             # another scenario (default n-plus-one)
 #
 # Local mode needs what the runner needs: PostgreSQL server binaries, k6 (AIOPS_K6) and cargo.
 # Exits non-zero when any verdict falls outside its expected set.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SUITE="scenarios/n-plus-one/candidates/suite.json"
-OUT="${OUT:-$ROOT/.work/harness-suite}"
+SCENARIO="${SCENARIO:-n-plus-one}"
+SUITE="scenarios/$SCENARIO/candidates/suite.json"
+SPEC="scenarios/$SCENARIO/scenario.toml"
+if [ "$SCENARIO" = n-plus-one ]; then OUT="${OUT:-$ROOT/.work/harness-suite}"; else OUT="${OUT:-$ROOT/.work/harness-suite-$SCENARIO}"; fi
 mkdir -p "$OUT"
 
 run_trial() { # $1 = candidate path relative to the repository root, $2 = output JSON
   if [ -n "${RUNNER_IMAGE:-}" ]; then
     # The image carries its own copy of the scenario under /opt/aiops (its working directory).
-    docker run --rm --network none "$RUNNER_IMAGE" aiops-runner trial --patch "$1" > "$2" 2> "${2%.json}.log"
+    docker run --rm --network none "$RUNNER_IMAGE" aiops-runner --scenario "$SPEC" trial --patch "$1" > "$2" 2> "${2%.json}.log"
   else
-    local pg_user=() work="$OUT/work/$(basename "${2%.json}")"
+    # A short path: the database's Unix socket lives under it, and socket paths stop at 107 bytes.
+    local pg_user=() work="$ROOT/.work/hs/$(basename "${2%.json}")"
     if [ "$(id -u)" = 0 ]; then pg_user=(--pg-user postgres); fi
     rm -rf "$work" && mkdir -p "$work" && chmod 777 "$work"
     local status=0
     AIOPS_WORK_DIR="$work" AIOPS_TARGET_DIR="${AIOPS_TARGET_DIR:-$ROOT/.work/target}" \
       "${RUNNER_BIN:-$ROOT/target/release/aiops-runner}" ${pg_user[@]+"${pg_user[@]}"} \
-      trial --patch "$ROOT/$1" > "$2" 2> "${2%.json}.log" || status=$?
+      --repo-root "$ROOT" --scenario "$SPEC" trial --patch "$ROOT/$1" > "$2" 2> "${2%.json}.log" || status=$?
     rm -rf "$work"
     return $status
   fi
@@ -53,7 +57,7 @@ while read -r file expect tolerate gate want_reason; do
   name="${file%.json}"
   started=$(date +%s)
   printf '%-34s ' "$name"
-  if run_trial "scenarios/n-plus-one/candidates/$file" "$OUT/$name.json"; then
+  if run_trial "scenarios/$SCENARIO/candidates/$file" "$OUT/$name.json"; then
     verdict=$(python3 - "$OUT/$name.json" <<'PY'
 import json, sys
 e = json.load(open(sys.argv[1]))["evaluation"]

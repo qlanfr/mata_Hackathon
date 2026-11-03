@@ -1,0 +1,12 @@
+{
+  "name": "search-long-no-match",
+  "request": {
+    "path": "/products/search?q=a%20very%20long%20product%20name%20that%20nobody%20sells%20anywhere"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "products": []
+    }
+  }
+}

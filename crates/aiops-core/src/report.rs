@@ -155,6 +155,9 @@ pub struct TrialReport {
     #[serde(default)]
     pub sample: Option<CorrectnessReport>,
     pub pairs: Vec<Pair>,
+    /// Vulnerability-fix scenarios: every attack sent to the baseline and to the candidate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security: Option<SecurityReport>,
     /// The candidate process exited during the trial (crash, OOM kill, ...).
     pub candidate_crashed: Option<String>,
     pub baseline_logs: Option<ServiceLogSummary>,
@@ -185,7 +188,45 @@ pub struct BaselineReport {
     /// for scenarios with `database.statement_stats`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub statements: Vec<serde_json::Value>,
+    /// Vulnerability-fix scenarios: every attack sent to the original service.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exploits: Vec<ExploitResult>,
     pub execution_error: Option<String>,
     pub env: EnvInfo,
     pub timings_ms: BTreeMap<String, u64>,
+}
+
+/// One attack request sent to one service.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExploitResult {
+    pub name: String,
+    pub path: String,
+    /// Not shown to the model.
+    #[serde(default)]
+    pub held_out: bool,
+    /// HTTP status, or 0 when no answer came back.
+    pub status: u16,
+    /// The response body contains the exploit's leak text.
+    pub leaked: bool,
+    /// The start of the response body.
+    pub excerpt: String,
+}
+
+impl ExploitResult {
+    /// The attack worked: a successful answer carrying data the caller must not get.
+    pub fn exploited(&self) -> bool {
+        (200..300).contains(&self.status) && self.leaked
+    }
+
+    /// No answer, or a server error: the attack is not refused cleanly.
+    pub fn errored(&self) -> bool {
+        self.status == 0 || self.status >= 500
+    }
+}
+
+/// The attacks of a vulnerability-fix trial, sent to both services.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct SecurityReport {
+    pub baseline: Vec<ExploitResult>,
+    pub candidate: Vec<ExploitResult>,
 }

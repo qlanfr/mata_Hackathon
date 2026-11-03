@@ -1,0 +1,12 @@
+{
+  "name": "search-too-long",
+  "request": {
+    "path": "/products/search?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "expect": {
+    "status": 400,
+    "body": {
+      "error": "query_too_long"
+    }
+  }
+}

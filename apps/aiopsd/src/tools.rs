@@ -28,20 +28,25 @@ fn object(properties: Value, required: &[&str]) -> Value {
     json!({ "type": "object", "properties": properties, "required": required, "additionalProperties": false })
 }
 
-pub fn allowed(role: Role, name: &str) -> bool {
+pub fn allowed(role: Role, name: &str, security: bool) -> bool {
     match name {
-        "query_metrics"
-        | "read_request_evidence"
-        | "list_source"
-        | "read_source"
-        | "search_experiments" => true,
+        "query_metrics" | "read_request_evidence" => !security,
+        "list_source" | "read_source" | "search_experiments" => true,
+        "read_vulnerability_report" => security,
         "read_trial_result" => role == Role::Experimenter,
         _ => false,
     }
 }
 
-pub fn specs_for(role: Role) -> Vec<ToolSpec> {
+/// The tools of one role. Vulnerability-fix scenarios read the vulnerability report instead of
+/// load measurements, which they do not have.
+pub fn specs_for(role: Role, security: bool) -> Vec<ToolSpec> {
     let all = vec![
+        ToolSpec {
+            name: "read_vulnerability_report",
+            description: "The vulnerability report for this service: the advisory, and each reported attack request with the original service's status and the start of its response. Further attacks are tested but never shown.",
+            parameters: object(json!({}), &[]),
+        },
         ToolSpec {
             name: "query_metrics",
             description: "Baseline measurements for this run: fixed load plan, p50/p95/p99 latency of A/A pairs, error and drop counts, A/A noise, and per-request SQL statistics from the service logs.",
@@ -73,13 +78,15 @@ pub fn specs_for(role: Role) -> Vec<ToolSpec> {
             parameters: object(json!({}), &[]),
         },
     ];
-    all.into_iter().filter(|t| allowed(role, t.name)).collect()
+    all.into_iter()
+        .filter(|t| allowed(role, t.name, security))
+        .collect()
 }
 
 /// Runs a tool and returns its JSON result. Errors are returned as `{ "error": ... }` so the
 /// model can correct itself; they never abort the run.
 pub async fn execute(ctx: &ToolContext<'_>, role: Role, name: &str, arguments: &str) -> Value {
-    if !allowed(role, name) {
+    if !allowed(role, name, ctx.spec.security.is_some()) {
         return json!({ "error": format!("tool `{name}` is not available to the {} role", role.as_str()) });
     }
     let args: Value = match serde_json::from_str(if arguments.trim().is_empty() {
@@ -92,6 +99,7 @@ pub async fn execute(ctx: &ToolContext<'_>, role: Role, name: &str, arguments: &
     };
     let result = match name {
         "query_metrics" => Ok(query_metrics(ctx)),
+        "read_vulnerability_report" => Ok(read_vulnerability_report(ctx)),
         "read_request_evidence" => Ok(read_request_evidence(ctx, limit(&args))),
         "list_source" => list_source(ctx),
         "read_source" => read_source(
@@ -141,6 +149,35 @@ fn query_metrics(ctx: &ToolContext<'_>) -> Value {
         ],
         "aa_pairs": pairs,
         "requests_logged": b.logs.requests,
+    })
+}
+
+/// The advisory and the reported attacks with the original's answers. Held-out attacks are never
+/// part of it.
+fn read_vulnerability_report(ctx: &ToolContext<'_>) -> Value {
+    let Some(security) = &ctx.spec.security else {
+        return json!({ "error": "this scenario has no vulnerability report" });
+    };
+    let attacks: Vec<Value> = ctx
+        .baseline
+        .exploits
+        .iter()
+        .filter(|e| !e.held_out)
+        .map(|e| {
+            json!({
+                "id": format!("exploit:{}", e.name),
+                "request": format!("GET {}", e.path),
+                "original_status": e.status,
+                "worked_on_original": e.exploited(),
+                "original_response_start": e.excerpt,
+            })
+        })
+        .collect();
+    json!({
+        "advisory": security.advisory.trim(),
+        "attacks": attacks,
+        "held_out_attacks": security.held_out.len(),
+        "note": "A fix is accepted only if every attack above and every held-out attack is refused cleanly (no server error), and every golden response stays identical.",
     })
 }
 

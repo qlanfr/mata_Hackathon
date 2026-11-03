@@ -1,0 +1,12 @@
+{
+  "name": "unknown-user",
+  "request": {
+    "path": "/users/999/orders"
+  },
+  "expect": {
+    "status": 404,
+    "body": {
+      "error": "user_not_found"
+    }
+  }
+}

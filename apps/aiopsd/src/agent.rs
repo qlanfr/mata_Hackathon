@@ -53,10 +53,13 @@ pub struct Limits {
     pub max_tool_calls: u32,
 }
 
-pub fn instructions(role: Role) -> &'static str {
-    match role {
-        Role::Observer => include_str!("../../../prompts/observer.md"),
-        Role::Experimenter => include_str!("../../../prompts/experimenter.md"),
+/// The role's instructions; vulnerability-fix scenarios have their own.
+pub fn instructions(role: Role, security: bool) -> &'static str {
+    match (role, security) {
+        (Role::Observer, false) => include_str!("../../../prompts/observer.md"),
+        (Role::Experimenter, false) => include_str!("../../../prompts/experimenter.md"),
+        (Role::Observer, true) => include_str!("../../../prompts/security-observer.md"),
+        (Role::Experimenter, true) => include_str!("../../../prompts/security-experimenter.md"),
     }
 }
 
@@ -71,7 +74,8 @@ pub async fn run_role<T: Structured>(
     usage: &mut RunUsage,
     limits: &Limits,
 ) -> Result<T, AgentError> {
-    let tool_specs = tools::specs_for(role);
+    let security = tools_ctx.spec.security.is_some();
+    let tool_specs = tools::specs_for(role, security);
     let schema = T::schema();
     let mut input = vec![Item::Message {
         role: "user".into(),
@@ -122,7 +126,7 @@ pub async fn run_role<T: Structured>(
             .respond(&ModelRequest {
                 role,
                 round,
-                instructions: instructions(role),
+                instructions: instructions(role, security),
                 input: &input,
                 tools: if wrapping_up { &no_tools } else { &tool_specs },
                 output_schema: (T::NAME, &schema),

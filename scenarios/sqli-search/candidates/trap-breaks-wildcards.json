@@ -1,0 +1,10 @@
+{
+  "summary": "Binds the pattern but also escapes % and _ in the query, so they no longer act as wildcards. Expected: REJECTED by the golden cases. Hand-written harness check, not model output.",
+  "edits": [
+    {
+      "path": "src/search.rs",
+      "search": "    let sql = format!(\n        \"SELECT id, name, price_cents FROM products WHERE name ILIKE '%{query}%' ORDER BY id LIMIT 20\"\n    );\n    let rows = tracker.run(sqlx::query(&sql).fetch_all(pool)).await?;",
+      "replace": "    let escaped = query.replace('\\\\', \"\\\\\\\\\").replace('%', \"\\\\%\").replace('_', \"\\\\_\");\n    let pattern = format!(\"%{escaped}%\");\n    let rows = tracker\n        .run(\n            sqlx::query(\n                \"SELECT id, name, price_cents FROM products WHERE name ILIKE $1 ORDER BY id LIMIT 20\",\n            )\n            .bind(pattern)\n            .fetch_all(pool),\n        )\n        .await?;"
+    }
+  ]
+}

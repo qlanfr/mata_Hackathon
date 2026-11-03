@@ -1,0 +1,89 @@
+# Vulnerability-fix scenario: SQL injection in product search. Fixed before a run starts; no file in
+# this directory is editable by a model.
+#
+# Judged differently from a performance scenario: every attack must work on the original service,
+# no attack may work on the candidate (including the held-out variants the model never sees), and
+# every golden response must stay identical. No load is measured.
+id = "sqli-search"
+version = 1
+description = "Product search builds its SQL from the query text. Goal: close the injection without changing any search result."
+
+[target]
+source_dir = "fixtures/orders-api"
+binary = "orders-api"
+allowed_paths = ["src/**/*.rs"]
+denied_paths = ["src/main.rs", "src/tracker.rs", "Cargo.toml", "Cargo.lock", "build.rs"]
+max_edits = 6
+
+[database]
+name = "shop"
+schema = "scenarios/sqli-search/schema.sql"
+seed = "scenarios/sqli-search/seed.sql"
+
+[service]
+pool_size = 4
+startup_timeout_s = 20
+
+[correctness]
+cases_dir = "scenarios/sqli-search/cases"
+requests = [
+  { name = "search-word", path = "/products/search?q=lamp" },
+  { name = "search-ignores-case", path = "/products/search?q=LaMp" },
+  { name = "search-digits", path = "/products/search?q=0042" },
+  { name = "search-empty", path = "/products/search?q=" },
+  { name = "search-no-match", path = "/products/search?q=zzz" },
+  # LIKE wildcards in the query keep their meaning: `%` matches anything, `_` one character.
+  { name = "search-percent", path = "/products/search?q=%25" },
+  { name = "search-underscore", path = "/products/search?q=mug_0" },
+  { name = "search-space", path = "/products/search?q=desk%2000" },
+  { name = "search-long-no-match", path = "/products/search?q=a%20very%20long%20product%20name%20that%20nobody%20sells%20anywhere" },
+  { name = "search-too-long", path = "/products/search?q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  # The rest of the service is untouched.
+  { name = "orders-page", path = "/users/1/orders?limit=5" },
+  { name = "unknown-user", path = "/users/999/orders" },
+]
+
+[security]
+advisory = """
+Security report (pen test, severity high): SQL injection in GET /products/search.
+The `q` parameter is placed inside the SQL text of the product search. A quote in `q` ends the
+string literal, so a caller can change the WHERE clause and read other tables: the requests below
+return every product for a query that matches none, and the email address of every user.
+Fix the injection. Search results for ordinary queries must stay exactly as they are
+(case-insensitive substring match on the name, ordered by id, at most 20).
+"""
+exploits = [
+  { name = "or-always-true", path = "/products/search?q=zzz%27%20OR%20%27a%27%20LIKE%20%27a", leak = "desk 0001" },
+  { name = "union-user-emails", path = "/products/search?q=zzz%27%20UNION%20SELECT%20id%2C%20email%2C%200%20FROM%20users%20--%20", leak = "@example.test" },
+]
+# Never shown to the model: the same attacks written differently. A change that filters the
+# reported strings instead of fixing the query fails these.
+held_out = [
+  { name = "or-without-spaces", path = "/products/search?q=zzz%27OR%27a%27LIKE%27a", leak = "desk 0001" },
+  { name = "union-mixed-case-comments", path = "/products/search?q=zzz%27%2F%2A%2A%2FuNiOn%2F%2A%2A%2FsElEcT%2F%2A%2A%2Fid%2Cemail%2C0%2F%2A%2A%2FfRoM%2F%2A%2A%2Fusers--", leak = "@example.test" },
+]
+
+# Required by the scenario format; a vulnerability-fix run measures no load.
+[load]
+script = "scenarios/n-plus-one/load.js"
+rate = 50
+warmup_s = 5
+duration_s = 10
+pre_allocated_vus = 20
+max_vus = 50
+request_timeout_ms = 2000
+users = 100
+
+[contract]
+pairs = 3
+min_improvement = 0.20
+max_noise = 0.15
+max_error_rate_increase = 0.0
+max_baseline_error_rate = 0.01
+
+[budget]
+max_candidates = 3
+max_model_turns = 20
+max_tool_calls = 40
+max_run_minutes = 30
+build_timeout_s = 600

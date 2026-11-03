@@ -1,8 +1,9 @@
 name: Harness suite
 
 # Two jobs, both inside the runner image (no network):
-# - suite: every hand-written candidate in scenarios/n-plus-one/candidates/suite.json; fails when
-#   a verdict or its deciding reason falls outside the expected set.
+# - suite: every hand-written candidate in scenarios/n-plus-one/candidates/suite.json, then those of
+#   the vulnerability-fix scenario (scenarios/sqli-search); fails when a verdict or its deciding
+#   reason falls outside the expected set.
 # - mutation: rule-generated mutants of the service through the correctness checks only; reports
 #   how many each check catches and lists the survivors.
 on:
@@ -38,11 +39,23 @@ jobs:
           scripts/harness-suite.sh || status=$?
           cat .work/harness-suite/summary.md >> "$GITHUB_STEP_SUMMARY" || true
           exit $status
+      - name: Run the vulnerability-fix suite
+        if: always()
+        env:
+          RUNNER_IMAGE: aiops-runner:suite
+          SCENARIO: sqli-search
+        run: |
+          status=0
+          scripts/harness-suite.sh || status=$?
+          { echo; echo "### Vulnerability fix (sqli-search)"; cat .work/harness-suite-sqli-search/summary.md; } >> "$GITHUB_STEP_SUMMARY" || true
+          exit $status
       - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: harness-suite
-          path: .work/harness-suite
+          path: |
+            .work/harness-suite
+            .work/harness-suite-sqli-search
           if-no-files-found: ignore
           include-hidden-files: true
 

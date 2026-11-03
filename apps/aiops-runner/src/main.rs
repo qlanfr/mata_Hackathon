@@ -6,6 +6,7 @@ mod api;
 mod builder;
 mod config;
 mod correctness;
+mod exploits;
 mod invariants;
 mod jobs;
 mod load;

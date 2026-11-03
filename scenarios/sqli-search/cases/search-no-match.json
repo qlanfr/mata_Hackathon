@@ -1,0 +1,12 @@
+{
+  "name": "search-no-match",
+  "request": {
+    "path": "/products/search?q=zzz"
+  },
+  "expect": {
+    "status": 200,
+    "body": {
+      "products": []
+    }
+  }
+}
