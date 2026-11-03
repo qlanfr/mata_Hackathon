@@ -134,7 +134,8 @@ impl MetaProvider {
         anyhow::ensure!(!model.is_empty(), "META_MODEL is empty");
         Ok(Self {
             http: reqwest::Client::builder()
-                .timeout(Duration::from_secs(120))
+                // A final answer with a multi-file patch can take minutes to generate.
+                .timeout(Duration::from_secs(420))
                 .build()?,
             base_url: base_url.trim_end_matches('/').to_owned(),
             api_key: api_key.to_owned(),
@@ -186,15 +187,28 @@ impl MetaProvider {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            let resp = self
+            let sent = self
                 .http
                 .post(format!("{}/responses", self.base_url))
                 .bearer_auth(&self.api_key)
                 .json(&body)
                 .send()
-                .await
-                .context("Meta API request failed")?;
+                .await;
+            // One more try after a timeout or a dropped connection: the request is idempotent,
+            // and losing a whole run to one slow answer costs more than repeating it.
+            let resp = match sent {
+                Err(e) if (e.is_timeout() || e.is_connect() || e.is_request()) && attempt <= 1 => {
+                    tracing::warn!(error = %e, "Meta API request failed; retrying once");
+                    continue;
+                }
+                other => other.context("Meta API request failed")?,
+            };
             let status = resp.status();
+            if status.is_server_error() && attempt <= 1 {
+                tracing::warn!(%status, "Meta API server error; retrying once");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
             if status.as_u16() == 429 && attempt <= 3 {
                 let wait = resp
                     .headers()
