@@ -426,6 +426,18 @@ CI에서 함정 모음을 처음 돌렸을 때 runner의 빌드 버그가 드러
   - Meta 요청 시간 초과 420초와 1회 재시도. 빌드 실패 이유에 컴파일러 오류 포함. 후보는 항상 원본에 적용된다고 프롬프트에 명시.
 - 정리: `docs/real-bug-probe.md`.
 
+### CLI와 MCP 서버 (11/3) — 툴 콜만으로 배포본에서 실험 시작부터 판정까지
+
+- `apps/aiops-cli`: Rust 바이너리 `aiops` 하나에 CLI와 MCP 서버(`aiops mcp`, stdio JSON-RPC)를 넣었다. 웹 화면과 같은 API를 쓴다.
+  - CLI: `info`, `runs`, `run [--wait]`, `status`, `trial [--diff]`, `alert`, `cancel`. `run --wait`는 VERIFIED면 종료 코드 0, 검증된 변경 없이 끝나면 2, 시간 초과면 3이라 CI·cron에서 바로 쓸 수 있다.
+  - MCP 도구 8개: `service_info`, `list_runs`, `start_experiment`, `report_alert`, `wait_for_run`(진행 알림 지원), `get_run`, `get_trial`, `cancel_run`.
+  - 관리자 토큰은 환경변수에서만 읽는다. 인자, 도구 파라미터, 출력 어디에도 나오지 않는다.
+- 로컬(Replay): CLI로 실험 1회 VERIFIED(p95 22.5 → 2.8 ms, 종료 코드 0), MCP 클라이언트로 1회 VERIFIED(상태마다 진행 알림 수신). 같은 알림 두 번은 run 하나로 합쳐졌고, 취소는 CANCELLED로 끝났다.
+- 배포본(Meta, **CLI and MCP** 워크플로):
+  - 첫 시도(run 41627178883): 기계가 바빠 A/A 노이즈 17.8%로 하네스가 판정을 거부(FAILED). 스모크 스크립트가 이걸 성공으로 셌던 문제를 고쳤다(COMPLETED·EXHAUSTED만 통과, 노이즈 거부는 1회 재시도).
+  - 둘째 시도(run 41627741947): 후보 1 INCONCLUSIVE(기준선 편차 21.3%), 후보 2 **VERIFIED 90.0%**, p95 28.4 → 2.8 ms, SQL 81.8 → 3.0, golden 14/14.
+- 정리: `docs/cli-and-mcp.md`.
+
 ## 검증 방법
 
 - `cargo test -p aiops-core`: 상태 전이 표, 예산 초과 거절, policy(범위 밖 경로·symlink) 거절, Evaluator 규칙(중앙값·방향 일치·게이트) 단위 테스트.

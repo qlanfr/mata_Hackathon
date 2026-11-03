@@ -106,7 +106,7 @@ Then ask, for example: "The order list API is slow. Start an experiment and tell
 ## Checked
 
 - Locally, against aiopsd and the runner with the Replay provider: `aiops run --wait` ran a full experiment to VERIFIED (p95 22.5 to 2.8 ms, SQL per request 81.8 to 3.0, golden 14/14, invariants 209/209, sample 200/200, exit code 0). An MCP client then did the same with `start_experiment` and `wait_for_run`, receiving a progress notification for each state change. `alert` started a run, a second alert with the same fingerprint joined it, and `cancel` ended it as CANCELLED.
-- Against the deployment: the **CLI and MCP** workflow runs the same MCP client there.
+- Against the deployment, in the **CLI and MCP** workflow ([run 41627741947](https://github.com/qlanfr/mata_Hackathon/actions/runs/41627741947)): the MCP client started an experiment with `start_experiment` and followed it with `wait_for_run`. The first trial was INCONCLUSIVE (baseline varied 21.3%), the second VERIFIED at 90.0%: p95 28.4 to 2.8 ms, SQL per request 81.8 to 3.0, golden 14/14. The first attempt ([run 41627178883](https://github.com/qlanfr/mata_Hackathon/actions/runs/41627178883)) ended FAILED because A/A noise on the machine was 17.8%: the harness refused to judge, and the smoke check now treats that as a reason to try once more, not as success.
 
 ## Not built yet
 

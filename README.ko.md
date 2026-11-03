@@ -9,7 +9,7 @@ Meta 모델이 운영 증거를 읽고 성능 개선 가설과 패치를 제안�
 - 상태: Cloudflare에 배포됨 — https://aiops-edge.yh9365.workers.dev .
   - 모델: Meta Model API의 `muse-spark-1.3`(관측·실험 역할).
   - 배포본에서 모델이 증거를 읽고 N+1을 찾아 패치를 제안했습니다. 하네스가 그 패치를 VERIFIED로 판정했습니다(run `01a19d86-d9d6-76d3-bced-54ae6d3475ec`, p95 쌍별 개선 88.6 / 87.7 / 88.3%, 요청당 SQL 81.8 → 3.0).
-  - 같은 시나리오에서 Spark 1.3은 8회 모두, Wonder 1.0은 4회 중 2회 VERIFIED에 도달했습니다(`docs/plan.md`의 모델 비교).
+  - 같은 시나리오에서 Spark 1.3은 모델이 일한 9회 모두, Wonder 1.0은 4회 중 2회 VERIFIED에 도달했습니다(`docs/plan.md`의 모델 비교).
   - 실제 버그(오픈소스 Vaultwarden의 N+1, issue #1402)에서도 모델의 일괄 재작성 패치가 요청당 SQL 2,011 → 15, p95 246 → 64 ms로 VERIFIED(74%)를 받았습니다(GitHub 러너, `docs/real-bug-probe.md`).
 
 ## 지금 동작하는 것
