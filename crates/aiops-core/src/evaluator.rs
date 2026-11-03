@@ -100,6 +100,30 @@ fn baseline_spread(pairs: &[Pair]) -> Option<f64> {
     Some((max - min) / med)
 }
 
+/// The `error` blocks of a cargo log (each `error…` line and the lines up to the next blank
+/// line), without the closing "could not compile" summary, cut to about 2,000 characters.
+pub fn compiler_errors(log: &str) -> String {
+    const LIMIT: usize = 2000;
+    let mut out = String::new();
+    let mut inside = false;
+    for line in log.lines() {
+        if line.starts_with("error") && !line.starts_with("error: could not compile") {
+            inside = true;
+        } else if line.trim().is_empty() {
+            inside = false;
+        }
+        if inside {
+            if out.len() + line.len() > LIMIT {
+                out.push('…');
+                break;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.trim_end().to_owned()
+}
+
 pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>) -> Evaluation {
     let mut eval = Evaluation {
         outcome: Outcome::ExecutionError,
@@ -141,12 +165,15 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
     }
     match &report.build {
         Some(build) if build.ok => {}
-        Some(_) => {
-            return decide(
-                eval,
-                Outcome::ExecutionError,
-                "candidate build failed".into(),
-            )
+        Some(build) => {
+            // The compiler's own words, so the model can fix its patch instead of guessing.
+            let errors = compiler_errors(&build.log_tail);
+            let reason = if errors.is_empty() {
+                "candidate build failed".to_owned()
+            } else {
+                format!("candidate build failed: {errors}")
+            };
+            return decide(eval, Outcome::ExecutionError, reason);
         }
         None => {
             return decide(
@@ -419,6 +446,22 @@ pub fn evaluate(contract: &Contract, report: &TrialReport, aa_noise: Option<f64>
         )
     };
     decide(eval, Outcome::Inconclusive, reason)
+}
+
+#[cfg(test)]
+mod compiler_error_tests {
+    use super::compiler_errors;
+
+    #[test]
+    fn keeps_error_blocks_only() {
+        let log = "   Compiling vaultwarden v1.0.0\nwarning: unused import\n  --> src/a.rs:1:5\n\nerror[E0425]: cannot find value `x`\n  --> src/db/models/cipher.rs:10:5\n   |\n10 |     x\n\nerror: could not compile `vaultwarden` due to previous error\n";
+        let e = compiler_errors(log);
+        assert!(e.starts_with("error[E0425]: cannot find value `x`"), "{e}");
+        assert!(e.contains("cipher.rs:10:5"));
+        assert!(!e.contains("warning"));
+        assert!(!e.contains("could not compile"));
+        assert_eq!(compiler_errors("warning: x\n"), "");
+    }
 }
 
 #[cfg(test)]

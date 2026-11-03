@@ -60,7 +60,7 @@ pub async fn build(
     }
 
     let full_log = std::fs::read(log).unwrap_or_default();
-    let mut log_tail = proc::tail(log, 4000);
+    let mut log_tail = proc::tail(log, 8000);
     if let Some(note) = note {
         log_tail.push_str(&format!("\n[runner] {note}"));
     }
