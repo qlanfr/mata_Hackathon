@@ -13,3 +13,4 @@
 2026-11-02 redeploy: restart aiopsd so it picks up the Meta configuration
 2026-11-02 sync the deploy: 14 golden cases and the probe time budget
 2026-11-03 deploy per-run model choice, R2 for reports, cron tick counter
+2026-11-03 deploy the output cap, immediate DO updates and the deploy stamp
