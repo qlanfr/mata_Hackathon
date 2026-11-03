@@ -147,10 +147,17 @@ impl Structured for ExperimentPlan {
                     _ => Err("an experiment needs a patch with at least one edit".into()),
                 }
             }
-            "stop" => match &self.stop_reason {
-                Some(r) if !r.trim().is_empty() => Ok(()),
-                _ => Err("`stop` needs a `stop_reason`".into()),
-            },
+            "stop" => {
+                // A model once described a full experiment and then chose `stop`, as if the
+                // patch would be run some other way. Nothing runs without `experiment`.
+                if self.patch.as_ref().is_some_and(|p| !p.edits.is_empty()) {
+                    return Err("you included a patch but chose `stop`; nothing runs unless `action` is `experiment`. Choose `experiment` to run it, or `stop` without a patch".into());
+                }
+                match &self.stop_reason {
+                    Some(r) if !r.trim().is_empty() => Ok(()),
+                    _ => Err("`stop` needs a `stop_reason`".into()),
+                }
+            }
             other => Err(format!(
                 "`action` must be `experiment` or `stop`, not `{other}`"
             )),
@@ -189,6 +196,18 @@ mod tests {
             .contains("evidence"));
         let unknown_field = r#"{"facts":[],"hypotheses":[],"affected_path":"","missing_information":[],"priority":"","extra":1}"#;
         assert!(parse_structured::<Observation>(unknown_field).is_err());
+    }
+
+    #[test]
+    fn stop_with_a_patch_is_sent_back() {
+        let plan: ExperimentPlan = serde_json::from_value(serde_json::json!({
+            "action": "stop", "hypothesis": "N+1", "evidence": [], "expected_effect": "", "falsified_if": "",
+            "patch": { "summary": "s", "edits": [{ "path": "src/repo.rs", "search": "a", "replace": "b" }] },
+            "stop_reason": "ready to proceed under local verification"
+        }))
+        .unwrap();
+        let err = plan.check().unwrap_err();
+        assert!(err.contains("chose `stop`"), "{err}");
     }
 
     #[test]

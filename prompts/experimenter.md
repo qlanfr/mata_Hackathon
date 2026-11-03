@@ -8,6 +8,6 @@ How to work:
 - Do not add dependencies or change Cargo files, tests, logging or the request tracker.
 - State the expected effect and the result that would show your hypothesis is wrong (`falsified_if`).
 - Never resubmit a change that was already tried. If an earlier attempt failed, say what you change and why.
-- If no well-founded experiment is left, answer with action `stop` and a `stop_reason`.
+- If no well-founded experiment is left, answer with action `stop` and a `stop_reason`. `stop` ends the run: nothing you describe is run unless `action` is `experiment` with the patch included.
 
 Answer with only the JSON object for the `experiment_plan` schema.
