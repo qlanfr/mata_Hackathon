@@ -5,7 +5,8 @@ name: Deploy edge
 # and, unless turned off, drives one full run on the deployed URL with scripts/drive-run.sh.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN and ADMIN_TOKEN (16+ characters). CLOUDFLARE_ACCOUNT_ID
-# is only needed when the token can access more than one account. META_API_KEY is optional.
+# is only needed when the token can access more than one account. META_API_KEY is optional, and so is
+# NOTIFY_WEBHOOK_URL (a Slack, Discord or JSON webhook told about every finished run).
 on:
   workflow_dispatch:
     inputs:
@@ -37,6 +38,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
       META_API_KEY: ${{ secrets.META_API_KEY }}
+      NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}
       D1_DATABASE_ID: 40be013f-ab7b-40eb-889a-40454179225f
     steps:
       - uses: actions/checkout@v4
@@ -115,6 +117,8 @@ jobs:
           s = {"ADMIN_TOKEN": os.environ["ADMIN_TOKEN"]}
           if os.environ.get("META_API_KEY"):
               s["META_API_KEY"] = os.environ["META_API_KEY"]
+          if os.environ.get("NOTIFY_WEBHOOK_URL"):
+              s["NOTIFY_WEBHOOK_URL"] = os.environ["NOTIFY_WEBHOOK_URL"]
           json.dump(s, open(sys.argv[1], "w"))
           PY
           )

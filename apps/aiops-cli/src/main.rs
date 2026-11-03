@@ -130,14 +130,31 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Info => {
             let info = api.info().await?;
             print(cli.json, &info, || {
-                format!(
+                let mut text = format!(
                     "{}\n  scenario {}  provider {}  version {}  deploy {}",
                     api.base(),
                     info["scenario"].as_str().unwrap_or("-"),
                     info["provider"].as_str().unwrap_or("-"),
                     info["version"].as_str().unwrap_or("-"),
                     info["deploy_stamp"].as_str().unwrap_or("-"),
-                )
+                );
+                let ops = &info["ops"];
+                if ops.is_object() {
+                    let limit = |v: &Value| match v.as_u64() {
+                        Some(0) | None => "none".to_owned(),
+                        Some(n) => n.to_string(),
+                    };
+                    text.push_str(&format!(
+                        "\n  schedule {}  daily runs {}  daily tokens {}  noise retries {} every {} min  notifications {}",
+                        ops["daily_run_utc"].as_str().map(|t| format!("{t} UTC")).unwrap_or_else(|| "off".into()),
+                        limit(&ops["daily_run_limit"]),
+                        limit(&ops["daily_token_limit"]),
+                        ops["noise_retries"],
+                        ops["noise_retry_minutes"],
+                        if ops["notifications"].as_bool() == Some(true) { "on" } else { "off" },
+                    ));
+                }
+                text
             });
         }
         Command::Runs { limit } => {

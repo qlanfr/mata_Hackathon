@@ -90,7 +90,7 @@ export function RunsPage({ askToken }: { askToken: () => Promise<boolean> }) {
                       </td>
                       <td style={{ minWidth: 260 }}>
                         <a href={`/runs/${r.id}`} onClick={(e) => e.preventDefault()}>
-                          {r.trigger?.kind === "alert" ? `Alert · ${r.trigger.fingerprint}` : "Manual run"}
+                          {r.trigger?.kind === "alert" ? `Alert · ${r.trigger.fingerprint}` : r.trigger?.kind === "schedule" ? "Scheduled run" : "Manual run"}
                         </a>
                         <div className="muted small clip">{r.summary ?? r.goal}</div>
                       </td>

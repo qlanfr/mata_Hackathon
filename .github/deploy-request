@@ -18,3 +18,4 @@
 2026-11-03T06:29 deploy the result summary, model results and harness scorecard
 2026-11-03T09:25 deploy: real-bug card on the first screen
 2026-11-03T13:16 deploy: current branch (CLI crate added to the workspace)
+2026-11-03T14:40 deploy: 24/7 operation (noise retry, daily limits, schedule, notifications) and the security gate

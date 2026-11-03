@@ -75,6 +75,7 @@ async fn healthz(State(app): State<Shared>) -> Json<Value> {
         "deploy_stamp": app.deploy_stamp, "inline_limit": app.artifacts.inline_limit(),
         "cron_ticks": app.cron_ticks.load(std::sync::atomic::Ordering::Relaxed),
         "last_cron_tick_ms": app.last_cron_tick_ms.load(std::sync::atomic::Ordering::Relaxed),
+        "ops": app.ops.view(),
     }))
 }
 
@@ -144,6 +145,11 @@ async fn create_run(State(app): State<Shared>, body: Option<Json<CreateRun>>) ->
             return error(StatusCode::BAD_REQUEST, "invalid model id");
         }
     }
+    match app.daily_run_refusal().await {
+        Ok(Some(reason)) => return error(StatusCode::TOO_MANY_REQUESTS, &reason),
+        Ok(None) => {}
+        Err(e) => return internal(e),
+    }
     match app
         .create_run(&goal, json!({ "kind": "manual" }), None, model.as_deref())
         .await
@@ -175,6 +181,17 @@ async fn create_alert(State(app): State<Shared>, Json(alert): Json<Alert>) -> Re
         .clone()
         .unwrap_or_else(|| app.spec.description.clone());
     let trigger = json!({ "kind": "alert", "fingerprint": alert.fingerprint, "service": alert.service, "summary": alert.summary });
+    // An alert for a symptom that already has a run joins it; only a new run counts against the
+    // daily limit.
+    match app.active_run_with(&alert.fingerprint).await {
+        Ok(Some(_)) => {}
+        Ok(None) => match app.daily_run_refusal().await {
+            Ok(Some(reason)) => return error(StatusCode::TOO_MANY_REQUESTS, &reason),
+            Ok(None) => {}
+            Err(e) => return internal(e),
+        },
+        Err(e) => return internal(e),
+    }
     match app
         .create_run(&goal, trigger, Some(&alert.fingerprint), None)
         .await

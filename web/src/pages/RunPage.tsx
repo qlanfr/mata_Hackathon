@@ -50,7 +50,7 @@ export function RunPage({ id, askToken }: { id: string; askToken: () => Promise<
           <Link to="/">Runs</Link> / {short(run.id, 12)}
         </span>
         <div className="row">
-          <h1>{run.trigger?.kind === "alert" ? `Alert · ${run.trigger.fingerprint}` : "Manual run"}</h1>
+          <h1>{run.trigger?.kind === "alert" ? `Alert · ${run.trigger.fingerprint}` : run.trigger?.kind === "schedule" ? "Scheduled run" : "Manual run"}</h1>
           <StatePill state={run.state} large />
           <ProviderBadge provider={run.provider} />
           {live && <span className="live">live</span>}

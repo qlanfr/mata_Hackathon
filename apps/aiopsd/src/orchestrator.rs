@@ -46,6 +46,8 @@ pub struct App {
     /// Ticks received from the Worker's cron (`POST /internal/tick?source=cron`), since start.
     pub cron_ticks: std::sync::atomic::AtomicU64,
     pub last_cron_tick_ms: std::sync::atomic::AtomicU64,
+    /// Retries, daily limits, schedule and notifications (see `ops.rs`).
+    pub ops: crate::ops::Ops,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +66,8 @@ pub struct Run {
     pub scenario_hash: String,
     /// `meta:<model>` or `replay`, fixed when the run is created.
     pub provider: String,
+    /// Measurements postponed because the machine was too noisy (see `ops.rs`).
+    pub env_retries: i64,
 }
 
 impl Run {
@@ -88,6 +92,7 @@ impl Run {
             observation: Some(row.json("observation")).filter(|v| !v.is_null()),
             scenario_hash: row.str("scenario_hash"),
             provider: row.str("provider"),
+            env_retries: row.i64("env_retries"),
         })
     }
 }
@@ -228,6 +233,9 @@ impl App {
         if !self.lease.renew().await? {
             return Ok(0);
         }
+        if let Err(err) = self.maybe_schedule().await {
+            tracing::warn!(error = %format!("{err:#}"), "scheduled run check failed");
+        }
         let rows = self
             .db
             .query(
@@ -306,7 +314,13 @@ impl App {
     ) -> anyhow::Result<bool> {
         let stmts = transition_stmts(run, to, sets, extra, payload, crate::now_ms());
         match self.db.batch(stmts).await {
-            Ok(_) => Ok(true),
+            Ok(_) => {
+                // Only the instance whose compare-and-swap won gets here, so a run is announced once.
+                if TERMINAL.contains(&to) {
+                    self.notify(&run.id, to).await;
+                }
+                Ok(true)
+            }
             Err(err) if is_cas_lost(&err) => {
                 tracing::warn!(run = %run.id, from = %run.state, to, "state changed concurrently; transition skipped");
                 Ok(false)
@@ -353,10 +367,21 @@ impl App {
     // Runner jobs
 
     fn job_insert(run_id: &str, trial_id: Option<&str>, kind: &str, attempt: i64) -> Stmt {
+        Self::job_insert_at(run_id, trial_id, kind, attempt, None)
+    }
+
+    /// A pending job that is not submitted before `not_before` (epoch ms), if given.
+    fn job_insert_at(
+        run_id: &str,
+        trial_id: Option<&str>,
+        kind: &str,
+        attempt: i64,
+        not_before: Option<u64>,
+    ) -> Stmt {
         let now = crate::now_ms();
         stmt(
-            "INSERT INTO jobs (id, run_id, trial_id, kind, status, attempt, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?6)",
-            vec![json!(uuid::Uuid::now_v7().to_string()), json!(run_id), json!(trial_id), json!(kind), json!(attempt), json!(now)],
+            "INSERT INTO jobs (id, run_id, trial_id, kind, status, attempt, not_before, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?7)",
+            vec![json!(uuid::Uuid::now_v7().to_string()), json!(run_id), json!(trial_id), json!(kind), json!(attempt), json!(not_before), json!(now)],
         )
     }
 
@@ -384,6 +409,46 @@ impl App {
                 params,
             )
             .await?;
+        Ok(())
+    }
+
+    /// Schedules the same measurement again later: a new pending job that waits until
+    /// `ops.retry_at`, and one more environment retry counted on the run.
+    async fn postpone(
+        &self,
+        run: &Run,
+        trial_id: Option<&str>,
+        kind: &str,
+        reason: &str,
+    ) -> anyhow::Result<()> {
+        let attempt = run.env_retries + 1;
+        let at = self.ops.retry_at(crate::now_ms(), attempt);
+        let mut extra = Vec::new();
+        if let Some(trial_id) = trial_id {
+            extra.push(stmt(
+                "UPDATE trials SET status = 'RUNNING', updated_at = ?2 WHERE id = ?1",
+                vec![json!(trial_id), json!(crate::now_ms())],
+            ));
+        }
+        extra.push(Self::job_insert_at(&run.id, trial_id, kind, 1, Some(at)));
+        let to = if kind == "baseline" {
+            "COLLECTING"
+        } else {
+            "PREPARING"
+        };
+        let payload = json!({ "retry": kind, "trial_id": trial_id, "reason": reason, "retry_at": at, "attempt": attempt, "of": self.ops.noise_retries });
+        if self
+            .transition(
+                run,
+                to,
+                &[("env_retries", json!(attempt))],
+                extra,
+                payload.clone(),
+            )
+            .await?
+        {
+            events::append(&self.db, &run.id, "env_retry", payload).await?;
+        }
         Ok(())
     }
 
@@ -415,6 +480,11 @@ impl App {
         let now = crate::now_ms();
 
         if job.str("status") == "pending" {
+            // A postponed measurement waits for its time (see `ops.rs`).
+            let not_before = job.i64("not_before");
+            if not_before > 0 && (not_before as u64) > now {
+                return Ok(());
+            }
             let patch = match job.opt_str("trial_id") {
                 Some(trial_id) => {
                     let trial = self
@@ -675,6 +745,9 @@ impl App {
         if let Some(noise) = aa {
             if noise > self.spec.contract.max_noise {
                 let reason = format!("A/A noise {:.1}% exceeds {:.1}%: the environment is too noisy to judge changes", noise * 100.0, self.spec.contract.max_noise * 100.0);
+                if run.env_retries < self.ops.noise_retries {
+                    return self.postpone(run, None, "baseline", &reason).await;
+                }
                 return self.fail(run, &reason, None).await;
             }
         }
@@ -773,6 +846,9 @@ impl App {
     }
 
     async fn plan(&self, run: &Run) -> anyhow::Result<()> {
+        if let Some(reason) = self.daily_token_refusal().await? {
+            return self.exhaust(run, &reason, &run.usage).await;
+        }
         let baseline = self.baseline_report(run).await?;
         let ctx = ToolContext {
             db: &self.db,
@@ -1027,6 +1103,15 @@ impl App {
                 self.transition(run, "PREPARING", &[], vec![reopen, job], json!({ "trial_id": trial_id, "remeasure": true, "reasons": evaluation["reasons"] }))
                     .await?;
                 return Ok(());
+            }
+            // Still inconclusive: measure the same patch again later on a quieter machine,
+            // instead of spending model tokens on another candidate.
+            if run.env_retries < self.ops.noise_retries {
+                let reason = evaluation["reasons"][0]
+                    .as_str()
+                    .unwrap_or("inconclusive measurement")
+                    .to_owned();
+                return self.postpone(run, Some(&trial_id), "trial", &reason).await;
             }
         }
         if run.usage.candidates >= run.budget.max_candidates {
@@ -1309,6 +1394,7 @@ mod tests {
             observation: None,
             scenario_hash: "s1".into(),
             provider: "replay".into(),
+            env_retries: 0,
         }
     }
 

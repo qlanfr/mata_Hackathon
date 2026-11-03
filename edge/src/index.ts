@@ -16,6 +16,15 @@ type Bindings = Cloudflare.Env & {
   ADMIN_TOKEN: string;
   META_API_KEY?: string;
   AIOPS_INLINE_LIMIT?: string;
+  /** 24/7 operation (see docs/operations.md). Unset values keep aiopsd's defaults. */
+  AIOPS_NOISE_RETRIES?: string;
+  AIOPS_NOISE_RETRY_MINUTES?: string;
+  AIOPS_DAILY_TOKEN_LIMIT?: string;
+  AIOPS_DAILY_RUN_LIMIT?: string;
+  AIOPS_DAILY_RUN_UTC?: string;
+  AIOPS_PUBLIC_URL?: string;
+  /** Secret: where finished runs are announced (Slack, Discord or any JSON webhook). */
+  NOTIFY_WEBHOOK_URL?: string;
   /** Set by the deploy workflow (`--var DEPLOY_STAMP:<commit>`); aiopsd reports it on /api/v1/info. */
   DEPLOY_STAMP?: string;
 };
@@ -46,6 +55,13 @@ export class AiopsdContainer extends Container<Bindings> {
       META_BASE_URL: env.META_BASE_URL ?? "https://api.meta.ai/v1",
       AIOPS_INLINE_LIMIT: env.AIOPS_INLINE_LIMIT ?? "65536",
       AIOPS_DEPLOY_STAMP: env.DEPLOY_STAMP ?? "",
+      AIOPS_NOISE_RETRIES: env.AIOPS_NOISE_RETRIES ?? "3",
+      AIOPS_NOISE_RETRY_MINUTES: env.AIOPS_NOISE_RETRY_MINUTES ?? "20",
+      AIOPS_DAILY_TOKEN_LIMIT: env.AIOPS_DAILY_TOKEN_LIMIT ?? "0",
+      AIOPS_DAILY_RUN_LIMIT: env.AIOPS_DAILY_RUN_LIMIT ?? "0",
+      AIOPS_DAILY_RUN_UTC: env.AIOPS_DAILY_RUN_UTC ?? "",
+      AIOPS_PUBLIC_URL: env.AIOPS_PUBLIC_URL ?? "",
+      AIOPS_NOTIFY_URL: env.NOTIFY_WEBHOOK_URL ?? "",
     };
   }
 }

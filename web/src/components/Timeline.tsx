@@ -15,6 +15,8 @@ interface Rendered {
   compact?: boolean;
 }
 
+const clock = (t?: number) => (t ? new Date(t).toISOString().slice(11, 16) + " UTC" : "later");
+
 const ROLE = (r: string) => (r === "observer" ? "Observer" : r === "experimenter" ? "Experimenter" : r);
 
 function render(e: RunEvent): Rendered | null {
@@ -25,7 +27,7 @@ function render(e: RunEvent): Rendered | null {
         actor: "control",
         who: "control plane",
         title: "Run created",
-        detail: `${p.trigger?.kind === "alert" ? `Alert ${p.trigger.fingerprint}` : "Started manually"} · budget ${p.budget?.max_candidates} candidates, ${p.budget?.max_model_turns} model turns · target p95 −${pct(p.contract?.min_improvement, 0)}`,
+        detail: `${p.trigger?.kind === "alert" ? `Alert ${p.trigger.fingerprint}` : p.trigger?.kind === "schedule" ? `Scheduled daily run (${p.trigger.at})` : "Started manually"} · budget ${p.budget?.max_candidates} candidates, ${p.budget?.max_model_turns} model turns · target p95 −${pct(p.contract?.min_improvement, 0)}`,
       };
     case "alert_merged":
       return { actor: "control", who: "control plane", title: "Duplicate alert merged into this run", detail: p.trigger?.summary ?? p.trigger?.fingerprint, compact: true };
@@ -141,6 +143,18 @@ function render(e: RunEvent): Rendered | null {
       return { actor: "control", tone: "problem", who: "control plane", title: "Cancel requested", compact: true };
     case "cancel_sent":
       return { actor: "runner", tone: "problem", who: "runner", title: "Runner asked to stop the job", compact: true };
+    case "env_retry":
+      return {
+        actor: "control",
+        tone: "problem",
+        who: "control plane",
+        title: `Machine too noisy to judge: measuring again at ${clock(p.retry_at)} (retry ${p.attempt} of ${p.of})`,
+        detail: p.reason,
+      };
+    case "notified":
+      return { actor: "control", who: "notification", title: `Webhook told: run ${String(p.state).toLowerCase()}`, detail: `HTTP ${p.status}`, compact: true };
+    case "notify_failed":
+      return { actor: "control", tone: "problem", who: "notification", title: "Webhook notification failed", detail: p.error ?? `HTTP ${p.status}`, compact: true };
     case "step_error":
       return { actor: "control", tone: "problem", who: "control plane", title: "Step failed; retrying", detail: p.error, compact: true };
     default:

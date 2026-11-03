@@ -23,7 +23,19 @@
     "META_MODEL": "muse-spark-1.3",
     // Artifacts above this many bytes go to R2 instead of staying inline in D1. 4 KB sends every
     // baseline and trial report (5-7 KB) through R2, so the relay is exercised on every run.
-    "AIOPS_INLINE_LIMIT": "4096"
+    "AIOPS_INLINE_LIMIT": "4096",
+    // 24/7 operation (docs/operations.md). A measurement too noisy to judge is tried again later,
+    // up to 3 times, 20, 40 and 60 minutes on.
+    "AIOPS_NOISE_RETRIES": "3",
+    "AIOPS_NOISE_RETRY_MINUTES": "20",
+    // Per UTC day: past the token budget a run stops before calling the model; past the run cap
+    // new runs are refused with 429. A Meta run uses about 40-70K tokens.
+    "AIOPS_DAILY_TOKEN_LIMIT": "1500000",
+    "AIOPS_DAILY_RUN_LIMIT": "30",
+    // One scheduled run per UTC day at this time (02:00 in Korea). "" turns the schedule off.
+    "AIOPS_DAILY_RUN_UTC": "17:00",
+    // Links in notifications. The webhook itself is the NOTIFY_WEBHOOK_URL secret.
+    "AIOPS_PUBLIC_URL": "https://aiops-edge.yh9365.workers.dev"
   },
   "d1_databases": [
     {

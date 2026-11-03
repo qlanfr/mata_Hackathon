@@ -8,6 +8,7 @@ mod db;
 mod events;
 mod lease;
 mod llm;
+mod ops;
 mod orchestrator;
 mod roles;
 mod runner_client;
@@ -89,6 +90,32 @@ struct Opts {
     /// --meta-model, print the result and exit. Nothing else starts.
     #[arg(long)]
     contract_test: bool,
+    /// How many times a run may postpone a measurement because the machine is too noisy.
+    #[arg(long, env = "AIOPS_NOISE_RETRIES", default_value_t = 3)]
+    noise_retries: i64,
+    /// Wait before a postponed measurement, times the attempt number.
+    #[arg(long, env = "AIOPS_NOISE_RETRY_MINUTES", default_value_t = 20)]
+    noise_retry_minutes: u64,
+    /// Model tokens (input + output) all runs may use per UTC day; 0 means no limit.
+    #[arg(long, env = "AIOPS_DAILY_TOKEN_LIMIT", default_value_t = 0)]
+    daily_token_limit: u64,
+    /// Runs that may be created per UTC day; 0 means no limit.
+    #[arg(long, env = "AIOPS_DAILY_RUN_LIMIT", default_value_t = 0)]
+    daily_run_limit: u64,
+    /// Start one run every UTC day at HH:MM; empty means no schedule.
+    #[arg(long, env = "AIOPS_DAILY_RUN_UTC", default_value = "")]
+    daily_run_utc: String,
+    /// Webhook told when a run finishes (Slack, Discord or any JSON endpoint).
+    #[arg(
+        long,
+        env = "AIOPS_NOTIFY_URL",
+        default_value = "",
+        hide_env_values = true
+    )]
+    notify_url: String,
+    /// Public base URL, for links in notifications.
+    #[arg(long, env = "AIOPS_PUBLIC_URL", default_value = "")]
+    public_url: String,
 }
 
 #[tokio::main]
@@ -151,6 +178,15 @@ async fn main() -> anyhow::Result<()> {
         deploy_stamp: opts.deploy_stamp.clone(),
         cron_ticks: std::sync::atomic::AtomicU64::new(0),
         last_cron_tick_ms: std::sync::atomic::AtomicU64::new(0),
+        ops: ops::Ops::new(
+            opts.noise_retries,
+            opts.noise_retry_minutes,
+            opts.daily_token_limit,
+            opts.daily_run_limit,
+            &opts.daily_run_utc,
+            &opts.notify_url,
+            &opts.public_url,
+        )?,
     });
     tracing::info!(instance = %app.lease.holder(), "orchestrator instance");
 
