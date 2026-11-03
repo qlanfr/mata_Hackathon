@@ -41,6 +41,9 @@ pub struct App {
     pub tick_lock: tokio::sync::Mutex<()>,
     /// Only the lease holder advances runs (see `lease.rs`).
     pub lease: Lease,
+    /// Ticks received from the Worker's cron (`POST /internal/tick?source=cron`), since start.
+    pub cron_ticks: std::sync::atomic::AtomicU64,
+    pub last_cron_tick_ms: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +60,15 @@ pub struct Run {
     pub observation: Option<Value>,
     /// The scenario the run was created for. Every runner report must match it.
     pub scenario_hash: String,
+    /// `meta:<model>` or `replay`, fixed when the run is created.
+    pub provider: String,
+}
+
+impl Run {
+    /// The model this run uses, when it was created with one (Meta runs only).
+    pub fn model(&self) -> Option<&str> {
+        self.provider.strip_prefix("meta:")
+    }
 }
 
 impl Run {
@@ -73,6 +85,7 @@ impl Run {
             baseline_artifact_id: row.opt_str("baseline_artifact_id"),
             observation: Some(row.json("observation")).filter(|v| !v.is_null()),
             scenario_hash: row.str("scenario_hash"),
+            provider: row.str("provider"),
         })
     }
 }
@@ -126,9 +139,11 @@ impl App {
         goal: &str,
         trigger: Value,
         fingerprint: Option<&str>,
+        model: Option<&str>,
     ) -> anyhow::Result<Result<String, String>> {
         let id = uuid::Uuid::now_v7().to_string();
         let now = crate::now_ms();
+        let provider = self.provider.label_for(model);
         let insert = self
             .db
             .execute(
@@ -141,7 +156,7 @@ impl App {
                     json!(self.scenario_hash),
                     json!(goal),
                     json!(trigger.to_string()),
-                    json!(self.provider.label()),
+                    json!(provider),
                     json!(serde_json::to_string(&self.spec.budget)?),
                     json!(serde_json::to_string(&RunUsage::default())?),
                     json!(now),
@@ -174,7 +189,7 @@ impl App {
             &self.db,
             &id,
             "run_created",
-            json!({ "goal": goal, "trigger": trigger, "provider": self.provider.label(), "scenario": self.spec.id, "scenario_hash": self.scenario_hash, "budget": self.spec.budget, "contract": self.spec.contract }),
+            json!({ "goal": goal, "trigger": trigger, "provider": provider, "scenario": self.spec.id, "scenario_hash": self.scenario_hash, "budget": self.spec.budget, "contract": self.spec.contract }),
         )
         .await?;
         Ok(Ok(id))
@@ -778,6 +793,7 @@ impl App {
             .await?;
             let result = agent::run_role::<Observation>(
                 &self.provider,
+                run.model(),
                 Role::Observer,
                 0,
                 self.observer_message(run),
@@ -835,6 +851,7 @@ impl App {
         .await?;
         let result = agent::run_role::<ExperimentPlan>(
             &self.provider,
+            run.model(),
             Role::Experimenter,
             tried,
             self.experimenter_message(run, &observation, tried),
@@ -1283,6 +1300,7 @@ mod tests {
             baseline_artifact_id: None,
             observation: None,
             scenario_hash: "s1".into(),
+            provider: "replay".into(),
         }
     }
 

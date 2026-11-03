@@ -53,6 +53,10 @@ struct Opts {
     /// `r2:http://r2.internal` in production, `fs:<dir>` locally.
     #[arg(long, env = "AIOPS_ARTIFACTS", default_value = "fs:.work/artifacts")]
     artifacts: String,
+    /// Artifacts up to this many bytes stay inline in the control DB; larger ones go to the blob
+    /// store (R2 in production).
+    #[arg(long, env = "AIOPS_INLINE_LIMIT", default_value_t = 64 * 1024)]
+    inline_limit: usize,
     #[arg(
         long,
         env = "AIOPS_RUNNER_URL",
@@ -106,7 +110,8 @@ async fn main() -> anyhow::Result<()> {
 
     let db = Db::connect(&opts.db, &repo_root.join(&opts.migrations)).await?;
     let db_for_lease = db.clone();
-    let artifacts = Artifacts::new(db.clone(), BlobStore::from_url(&opts.artifacts)?);
+    let artifacts = Artifacts::new(db.clone(), BlobStore::from_url(&opts.artifacts)?)
+        .with_inline_limit(opts.inline_limit);
     let api_key = std::env::var("META_API_KEY").unwrap_or_default();
     // `auto` uses Meta only when both the key and the model are configured, so a half-finished
     // configuration falls back to replay instead of crashing the control plane.
@@ -139,6 +144,8 @@ async fn main() -> anyhow::Result<()> {
             uuid::Uuid::new_v4().to_string(),
             LEASE_TTL_MS,
         ),
+        cron_ticks: std::sync::atomic::AtomicU64::new(0),
+        last_cron_tick_ms: std::sync::atomic::AtomicU64::new(0),
     });
     tracing::info!(instance = %app.lease.holder(), "orchestrator instance");
 

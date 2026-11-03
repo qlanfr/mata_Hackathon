@@ -72,10 +72,23 @@ async fn healthz(State(app): State<Shared>) -> Json<Value> {
         "ok": true, "db": app.db.backend(), "provider": app.provider.label(),
         "scenario": app.spec.id, "scenario_hash": app.scenario_hash,
         "instance": app.lease.holder(), "version": env!("CARGO_PKG_VERSION"),
+        "cron_ticks": app.cron_ticks.load(std::sync::atomic::Ordering::Relaxed),
+        "last_cron_tick_ms": app.last_cron_tick_ms.load(std::sync::atomic::Ordering::Relaxed),
     }))
 }
 
-async fn tick(State(app): State<Shared>) -> Response {
+#[derive(Deserialize, Default)]
+struct TickQuery {
+    source: Option<String>,
+}
+
+async fn tick(State(app): State<Shared>, Query(q): Query<TickQuery>) -> Response {
+    if q.source.as_deref() == Some("cron") {
+        use std::sync::atomic::Ordering;
+        app.cron_ticks.fetch_add(1, Ordering::Relaxed);
+        app.last_cron_tick_ms
+            .store(crate::now_ms(), Ordering::Relaxed);
+    }
     match app.tick().await {
         Ok(advanced) => Json(json!({ "advanced": advanced })).into_response(),
         Err(e) => internal(e),
@@ -101,6 +114,8 @@ async fn list_runs(State(app): State<Shared>) -> Response {
 #[derive(Deserialize, Default)]
 struct CreateRun {
     goal: Option<String>,
+    /// Meta model ID for this run (for example `muse-wonder-1.0`); the configured model otherwise.
+    model: Option<String>,
 }
 
 async fn create_run(State(app): State<Shared>, body: Option<Json<CreateRun>>) -> Response {
@@ -109,8 +124,27 @@ async fn create_run(State(app): State<Shared>, body: Option<Json<CreateRun>>) ->
         .goal
         .filter(|g| !g.trim().is_empty())
         .unwrap_or_else(|| app.spec.description.clone());
+    let model = body
+        .model
+        .map(|m| m.trim().to_owned())
+        .filter(|m| !m.is_empty());
+    if let Some(m) = &model {
+        if !app.provider.is_meta() {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "choosing a model needs the Meta provider",
+            );
+        }
+        if m.len() > 64
+            || !m
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        {
+            return error(StatusCode::BAD_REQUEST, "invalid model id");
+        }
+    }
     match app
-        .create_run(&goal, json!({ "kind": "manual" }), None)
+        .create_run(&goal, json!({ "kind": "manual" }), None, model.as_deref())
         .await
     {
         Ok(Ok(id)) => {
@@ -141,7 +175,7 @@ async fn create_alert(State(app): State<Shared>, Json(alert): Json<Alert>) -> Re
         .unwrap_or_else(|| app.spec.description.clone());
     let trigger = json!({ "kind": "alert", "fingerprint": alert.fingerprint, "service": alert.service, "summary": alert.summary });
     match app
-        .create_run(&goal, trigger, Some(&alert.fingerprint))
+        .create_run(&goal, trigger, Some(&alert.fingerprint), None)
         .await
     {
         Ok(Ok(id)) => {

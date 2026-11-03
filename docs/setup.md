@@ -95,6 +95,16 @@ scripts/container-e2e.sh
 BASE_URL=https://aiops-edge.<서브도메인>.workers.dev ADMIN_TOKEN=<토큰> scripts/drive-run.sh
 ```
 
+특정 Meta 모델로 돌리려면 `RUN_MODEL`을 줍니다(키로 쓸 수 있는 모델은 Meta contract 워크플로의 목록 참고). API로는 `POST /api/v1/runs`의 본문에 `{"model": "muse-wonder-1.0"}`을 넣는 것과 같습니다.
+
+```bash
+BASE_URL=https://aiops-edge.<서브도메인>.workers.dev ADMIN_TOKEN=<토큰> RUN_MODEL=muse-wonder-1.0 ACCEPT=finished scripts/drive-run.sh
+```
+
+GitHub Actions에서 여러 run을 이어서 돌리려면 `.github/run-request`에 모델 ID를 한 줄에 하나씩 적고 푸시합니다(`default`는 설정된 모델). **Run on Cloudflare** 워크플로가 순서대로 실행하고 요약 표를 남깁니다. 진행 중인 배포가 있으면 끝날 때까지 기다립니다.
+
+스크립트는 run이 끝나면 trial 보고서를 API로 다시 읽어(R2 또는 D1) 읽히는지 확인하고, run 동안 aiopsd가 Worker cron에서 받은 tick 수를 출력합니다.
+
 runner만 따로 확인하려면(A/A 노이즈, 후보 빌드 시간, 누락 여부):
 
 ```bash

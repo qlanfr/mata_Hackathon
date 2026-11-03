@@ -56,6 +56,7 @@ pub fn instructions(role: Role) -> &'static str {
 #[allow(clippy::too_many_arguments)]
 pub async fn run_role<T: Structured>(
     provider: &Provider,
+    model: Option<&str>,
     role: Role,
     round: u32,
     user_message: String,
@@ -90,6 +91,7 @@ pub async fn run_role<T: Structured>(
                 input: &input,
                 tools: &tool_specs,
                 output_schema: (T::NAME, &schema),
+                model,
             })
             .await
             .map_err(AgentError::Model)?;
@@ -123,7 +125,7 @@ pub async fn run_role<T: Structured>(
             "model_call",
             json!({
                 "role": role.as_str(), "round": round, "turn": usage.model_turns,
-                "provider": provider.label(), "response_id": response.response_id,
+                "provider": provider.label_for(model), "response_id": response.response_id,
                 "usage": response.usage,
                 "tool_calls": calls.iter().map(|c| c.1.clone()).collect::<Vec<_>>(),
                 "answered": calls.is_empty(),

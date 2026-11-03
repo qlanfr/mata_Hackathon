@@ -64,6 +64,8 @@ pub struct ModelRequest<'a> {
     pub tools: &'a [ToolSpec],
     /// `(name, JSON schema)` for the final structured answer.
     pub output_schema: (&'a str, &'a Value),
+    /// Model for this run, when it differs from the provider's default (Meta only).
+    pub model: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
@@ -87,10 +89,19 @@ pub enum Provider {
 
 impl Provider {
     pub fn label(&self) -> String {
+        self.label_for(None)
+    }
+
+    /// The label of a run on this provider, with an optional per-run model.
+    pub fn label_for(&self, model: Option<&str>) -> String {
         match self {
-            Provider::Meta(m) => format!("meta:{}", m.model),
+            Provider::Meta(m) => format!("meta:{}", model.unwrap_or(&m.model)),
             Provider::Replay(_) => "replay".into(),
         }
+    }
+
+    pub fn is_meta(&self) -> bool {
+        matches!(self, Provider::Meta(_))
     }
 
     pub async fn respond(&self, req: &ModelRequest<'_>) -> anyhow::Result<ModelResponse> {
@@ -150,7 +161,7 @@ impl MetaProvider {
             .map(|t| json!({ "type": "function", "name": t.name, "description": t.description, "parameters": t.parameters }))
             .collect();
         json!({
-            "model": self.model,
+            "model": req.model.unwrap_or(&self.model),
             "instructions": req.instructions,
             "input": input,
             "tools": tools,
@@ -236,6 +247,7 @@ pub async fn contract_test(meta: &MetaProvider) -> anyhow::Result<()> {
             input: &input,
             tools: &tools,
             output_schema: ("order_count_answer", &schema),
+            model: None,
         };
         let resp = meta.respond(&req).await?;
         usage.input_tokens += resp.usage.input_tokens;
@@ -493,6 +505,7 @@ mod tests {
                 input,
                 tools: &[],
                 output_schema: ("o", &schema),
+                model: None,
             })
             .unwrap()
         };
@@ -519,6 +532,7 @@ mod tests {
                 input: &input[..1],
                 tools: &[],
                 output_schema: ("p", &schema),
+                model: None,
             })
             .unwrap();
         assert!(

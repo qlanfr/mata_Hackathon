@@ -15,6 +15,7 @@ export { ContainerProxy };
 type Bindings = Cloudflare.Env & {
   ADMIN_TOKEN: string;
   META_API_KEY?: string;
+  AIOPS_INLINE_LIMIT?: string;
 };
 
 const TERMINAL = "('COMPLETED','EXHAUSTED','FAILED','CANCELLED')";
@@ -41,6 +42,7 @@ export class AiopsdContainer extends Container<Bindings> {
       META_API_KEY: env.META_API_KEY ?? "",
       META_MODEL: env.META_MODEL ?? "",
       META_BASE_URL: env.META_BASE_URL ?? "https://api.meta.ai/v1",
+      AIOPS_INLINE_LIMIT: env.AIOPS_INLINE_LIMIT ?? "65536",
     };
   }
 }
@@ -99,7 +101,12 @@ export default {
     try {
       const active = await env.DB.prepare(`SELECT COUNT(*) AS n FROM runs WHERE state NOT IN ${TERMINAL}`).first<{ n: number }>();
       if (active && active.n > 0) {
-        ctx.waitUntil(aiopsd(env).fetch("http://aiopsd/internal/tick", { method: "POST" }));
+        ctx.waitUntil(
+          aiopsd(env)
+            .fetch("http://aiopsd/internal/tick?source=cron", { method: "POST" })
+            .then(async (res) => console.log("cron tick", res.status, (await res.text()).slice(0, 200)))
+            .catch((err) => console.error("cron tick failed", err)),
+        );
       }
     } catch (err) {
       console.error("cron tick skipped", err); // e.g. migrations not applied yet

@@ -1,0 +1,66 @@
+name: Run on Cloudflare
+
+# Starts full runs on the deployed Worker, one per line of .github/run-request (a Meta model ID,
+# or `default` for the configured model), and summarises them. Runs on demand or when a push
+# changes that file. Waits for any Deploy edge run in progress first, so a run never starts
+# against a rollout. Repository secret: ADMIN_TOKEN.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/run-request
+
+concurrency:
+  group: run-on-cloudflare
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://aiops-edge.yh9365.workers.dev
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the secret
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          if [ -z "$ADMIN_TOKEN" ]; then echo "::error::Repository secret ADMIN_TOKEN is not set"; exit 1; fi
+      - name: Wait for any deploy in progress
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 60); do
+            busy=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-edge.yml --json status \
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued" or .status == "pending" or .status == "waiting")] | length')
+            if [ "$busy" = 0 ]; then break; fi
+            echo "a deploy is in progress; waiting"; sleep 60
+          done
+      - name: Runs
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          ACCEPT: finished
+          STARTUP_S: "900"
+          TIMEOUT_S: "3000"
+        run: |
+          failed=0
+          echo "| model | result |" > summary.md; echo "| --- | --- |" >> summary.md
+          for model in $(grep -v '^\s*#' .github/run-request | grep -v '^\s*$'); do
+            out=".work/run-$model-$(date -u +%H%M%S)"
+            echo "::group::$model"
+            if [ "$model" = default ]; then unset RUN_MODEL; else export RUN_MODEL="$model"; fi
+            if OUT="$out" scripts/drive-run.sh; then r=PASS; else r=FAIL; failed=1; fi
+            echo "::endgroup::"
+            echo "| $model | $r: $(cat "$out/summary.txt" 2>/dev/null || echo 'no summary') |" | tee -a summary.md
+          done
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          exit $failed
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runs
+          path: .work
+          if-no-files-found: ignore
+          include-hidden-files: true

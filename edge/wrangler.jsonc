@@ -20,7 +20,10 @@
     // both, aiopsd uses the replay provider and labels runs `replay`. IDs available to the key
     // are listed by the Meta contract workflow (GET /v1/models); muse-spark-1.3 passed its
     // contract test (tool round trip and JSON-schema answer).
-    "META_MODEL": "muse-spark-1.3"
+    "META_MODEL": "muse-spark-1.3",
+    // Artifacts above this many bytes go to R2 instead of staying inline in D1. 4 KB sends every
+    // baseline and trial report (5-7 KB) through R2, so the relay is exercised on every run.
+    "AIOPS_INLINE_LIMIT": "4096"
   },
   "d1_databases": [
     {

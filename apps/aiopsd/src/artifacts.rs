@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::db::{Db, Row, RowExt};
 
 /// D1 rows are limited to 2 MB; stay well below it.
-const INLINE_LIMIT: usize = 64 * 1024;
+const DEFAULT_INLINE_LIMIT: usize = 64 * 1024;
 
 #[derive(Clone)]
 pub enum BlobStore {
@@ -78,11 +78,21 @@ impl BlobStore {
 pub struct Artifacts {
     db: Db,
     blobs: BlobStore,
+    inline_limit: usize,
 }
 
 impl Artifacts {
     pub fn new(db: Db, blobs: BlobStore) -> Self {
-        Self { db, blobs }
+        Self {
+            db,
+            blobs,
+            inline_limit: DEFAULT_INLINE_LIMIT,
+        }
+    }
+
+    pub fn with_inline_limit(mut self, limit: usize) -> Self {
+        self.inline_limit = limit;
+        self
     }
 
     pub async fn put_json(
@@ -106,7 +116,7 @@ impl Artifacts {
         let sha = aiops_core::sha256_hex(&bytes);
         let size = bytes.len();
         let (r2_key, inline) = match String::from_utf8(bytes) {
-            Ok(text) if text.len() <= INLINE_LIMIT => (None, Some(text)),
+            Ok(text) if text.len() <= self.inline_limit => (None, Some(text)),
             Ok(text) => {
                 let key = format!("runs/{run_id}/{id}");
                 self.blobs.put(&key, text.into_bytes()).await?;
