@@ -1,6 +1,3 @@
-# Models for the Run on Cloudflare workflow (.github/workflows/run-on-cloudflare.yml), one per line.
-# `default` uses the model configured in edge/wrangler.jsonc. Changing this file on a push starts
-# one full run on the deployed Worker per line, in order.
-# Second round: two more muse-wonder-1.0 runs after the output cap was raised.
-muse-wonder-1.0
-muse-wonder-1.0
+# One run per line on the deployed Worker: a Meta model ID, or `default` for the configured model.
+# 2026-11-03T13:42 re-check after the deploy run was too noisy to judge
+default
