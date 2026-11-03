@@ -1,0 +1,3 @@
+# One line per request: a run ID, or `latest` for the newest VERIFIED run. A push that changes this file
+# runs the "PR from a verified run" workflow as a dry run (apply, build, test; no pull request).
+latest

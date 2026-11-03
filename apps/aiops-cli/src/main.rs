@@ -7,15 +7,18 @@
 //!   aiops trial <trial_id> --diff   one trial's measurements and patch
 //!   aiops alert <fingerprint>       report a symptom from monitoring
 //!   aiops cancel <run_id>           stop a run
+//!   aiops apply <trial_id>          put a VERIFIED patch into this checkout (for a pull request)
 //!   aiops mcp                       serve the same operations as MCP tools over stdio
 //!
 //! The deployment comes from --url or AIOPS_URL. Starting, alerting and cancelling need the admin
 //! token in AIOPS_ADMIN_TOKEN; reading does not.
 
 mod api;
+mod apply;
 mod mcp;
 mod report;
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -99,6 +102,20 @@ enum Command {
     Cancel { run_id: String },
     /// Serve the operations as MCP tools over stdio, for AI clients such as Claude Code or Cursor.
     Mcp,
+    /// Apply a VERIFIED trial's patch to this checkout, with the harness's own path policy and
+    /// security gate, and write a pull request title and description.
+    Apply {
+        trial_id: String,
+        /// The scenario the run used.
+        #[arg(long, default_value = "scenarios/n-plus-one/scenario.toml")]
+        scenario: PathBuf,
+        /// Repository root; the patch goes into the scenario's source directory under it.
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// Write the pull request description here (Markdown).
+        #[arg(long)]
+        body_file: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -245,6 +262,35 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                         "started"
                     },
                     api.run_url(run_id)
+                )
+            });
+        }
+        Command::Apply {
+            trial_id,
+            scenario,
+            repo,
+            body_file,
+        } => {
+            let applied = apply::apply(&api, &trial_id, &scenario, &repo).await?;
+            if let Some(path) = &body_file {
+                std::fs::write(path, applied["body"].as_str().unwrap_or_default())?;
+            }
+            print(cli.json, &applied, || {
+                format!(
+                    "applied trial {trial_id} to {}\n  title: {}{}",
+                    applied["files"]
+                        .as_array()
+                        .map(|f| f
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", "))
+                        .unwrap_or_default(),
+                    applied["title"].as_str().unwrap_or_default(),
+                    body_file
+                        .as_ref()
+                        .map(|p| format!("\n  description: {}", p.display()))
+                        .unwrap_or_default(),
                 )
             });
         }

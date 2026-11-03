@@ -27,6 +27,7 @@ dependencies = [
 name = "aiops-cli"
 version = "0.1.0"
 dependencies = [
+ "aiops-core",
  "anyhow",
  "clap",
  "reqwest",
