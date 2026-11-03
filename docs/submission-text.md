@@ -28,7 +28,7 @@ A Rust evaluator, not the model, returns VERIFIED, REJECTED or INCONCLUSIVE with
 
 On an order-list API with an N+1 query:
 
-- Muse Spark 1.3 reached a VERIFIED patch in 7 of 7 runs. Muse Wonder 1.0 did in 2 of 4; one of its failures was our output-token cap, now fixed.
+- Muse Spark 1.3 reached a VERIFIED patch in all 7 runs where the model got to work; an eighth was stopped by our own deploy before the model was called. Muse Wonder 1.0 did in 2 of 4; one of its failures was our output-token cap, now fixed.
 - Verified patches cut SQL statements per request from 81.8 to 3.0 and p95 from about 17 ms to about 2 ms (median pairwise improvement 87.7% to 90.1%), with every golden and sampled response unchanged.
 - In one run the model's first patch did not match the source. The harness refused it before anything ran. The model read the refusal, corrected the patch, and the second one was VERIFIED.
 - In another, the measurement was too noisy (baseline varied 19.2%). The harness said INCONCLUSIVE twice instead of guessing, and the model's next candidate was VERIFIED.
