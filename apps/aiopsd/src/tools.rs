@@ -49,7 +49,7 @@ pub fn specs_for(role: Role) -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "read_request_evidence",
-            description: "The slowest request records from the baseline run, each with request id, URI, status, latency, SQL statement count and DB time.",
+            description: "The slowest request records from the baseline run, each with request id, URI, status, latency, SQL statement count and DB time. For services without a per-request log: the most frequent SQL statements of a measured baseline run, with calls per request.",
             parameters: object(json!({ "limit": { "type": "integer", "minimum": 1, "maximum": 20 } }), &["limit"]),
         },
         ToolSpec {
@@ -59,8 +59,8 @@ pub fn specs_for(role: Role) -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "read_source",
-            description: "Full text of one source file of the service under test (path relative to the service root, e.g. src/repo.rs).",
-            parameters: object(json!({ "path": { "type": "string" } }), &["path"]),
+            description: "Text of one source file of the service under test (path relative to the service root, e.g. src/repo.rs). Long files are cut; pass `start_line` (1-based) to read on from `next_line`.",
+            parameters: object(json!({ "path": { "type": "string" }, "start_line": { "type": "integer", "minimum": 1 } }), &["path"]),
         },
         ToolSpec {
             name: "search_experiments",
@@ -94,7 +94,11 @@ pub async fn execute(ctx: &ToolContext<'_>, role: Role, name: &str, arguments: &
         "query_metrics" => Ok(query_metrics(ctx)),
         "read_request_evidence" => Ok(read_request_evidence(ctx, limit(&args))),
         "list_source" => list_source(ctx),
-        "read_source" => read_source(ctx, args["path"].as_str().unwrap_or_default()),
+        "read_source" => read_source(
+            ctx,
+            args["path"].as_str().unwrap_or_default(),
+            args["start_line"].as_u64().map(|n| n as usize),
+        ),
         "search_experiments" => search_experiments(ctx, limit(&args)).await,
         "read_trial_result" => read_trial_result(ctx).await,
         _ => Err(anyhow::anyhow!("unknown tool `{name}`")),
@@ -125,7 +129,8 @@ fn query_metrics(ctx: &ToolContext<'_>) -> Value {
         .flat_map(|p| [p.baseline.p95_ms, p.candidate.p95_ms])
         .collect();
     json!({
-        "load_plan": { "rate_rps": ctx.spec.load.rate, "duration_s": ctx.spec.load.duration_s, "users": ctx.spec.load.users, "endpoint": "GET /users/{user_id}/orders?limit=20" },
+        "load_plan": { "rate_rps": ctx.spec.load.rate, "duration_s": ctx.spec.load.duration_s, "users": ctx.spec.load.users, "endpoint": ctx.spec.load.endpoint.as_deref().unwrap_or("GET /users/{user_id}/orders?limit=20") },
+        "sql_source": if ctx.spec.database.statement_stats && b.slow_requests.is_empty() { "pg_stat_statements during the measured baseline runs (no per-request service log)" } else { "the service's per-request log" },
         "metrics": [
             { "id": "metric:p95_ms", "value": aiops_core::evaluator::median(&p95s), "note": "median p95 of successful responses across A/A runs" },
             { "id": "metric:avg_sql_count", "value": b.logs.avg_sql_count },
@@ -140,6 +145,21 @@ fn query_metrics(ctx: &ToolContext<'_>) -> Value {
 }
 
 fn read_request_evidence(ctx: &ToolContext<'_>, limit: usize) -> Value {
+    // Services without a per-request log: the most frequent SQL statements of one measured
+    // baseline run instead, with how often each ran per request.
+    if ctx.baseline.slow_requests.is_empty() && !ctx.baseline.statements.is_empty() {
+        let statements: Vec<Value> = ctx
+            .baseline
+            .statements
+            .iter()
+            .take(limit)
+            .cloned()
+            .collect();
+        return json!({
+            "statements": statements,
+            "note": "No per-request service log for this scenario. These are the most frequent SQL statements during one measured baseline run (pg_stat_statements), with calls per request.",
+        });
+    }
     let requests: Vec<Value> = ctx
         .baseline
         .slow_requests
@@ -201,7 +221,11 @@ fn list_source(ctx: &ToolContext<'_>) -> anyhow::Result<Value> {
     Ok(json!({ "files": files }))
 }
 
-fn read_source(ctx: &ToolContext<'_>, path: &str) -> anyhow::Result<Value> {
+fn read_source(
+    ctx: &ToolContext<'_>,
+    path: &str,
+    start_line: Option<usize>,
+) -> anyhow::Result<Value> {
     anyhow::ensure!(
         !path.is_empty()
             && !path.starts_with('/')
@@ -215,13 +239,31 @@ fn read_source(ctx: &ToolContext<'_>, path: &str) -> anyhow::Result<Value> {
         std::fs::symlink_metadata(&full).map_err(|_| anyhow::anyhow!("`{path}` does not exist"))?;
     anyhow::ensure!(meta.is_file(), "`{path}` is not a regular file");
     let text = std::fs::read_to_string(&full)?;
-    let truncated = text.chars().count() > MAX_SOURCE_CHARS;
-    let content: String = text.chars().take(MAX_SOURCE_CHARS).collect();
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let start = start_line.unwrap_or(1).max(1);
+    anyhow::ensure!(
+        start <= lines.len().max(1),
+        "`{path}` has {} lines",
+        lines.len()
+    );
+    // Whole lines up to the size limit, so a file can be read on from `next_line`.
+    let mut content = String::new();
+    let mut end = start - 1;
+    for line in &lines[start - 1..] {
+        if !content.is_empty() && content.len() + line.len() > MAX_SOURCE_CHARS {
+            break;
+        }
+        content.push_str(line);
+        end += 1;
+    }
+    let truncated = end < lines.len();
     Ok(json!({
         "id": format!("src:{path}"),
         "path": path,
         "editable": policy(ctx).check(path).is_ok(),
+        "lines": format!("{start}-{end} of {}", lines.len()),
         "truncated": truncated,
+        "next_line": if truncated { json!(end + 1) } else { Value::Null },
         "content": content,
     }))
 }

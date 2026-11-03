@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
+
 use aiops_core::patch::{apply_patch, PatchProposal, PathPolicy};
 use aiops_core::report::{BaselineReport, BuildReport, LoadStats, Pair, TrialReport};
 use tokio_util::sync::CancellationToken;
@@ -19,6 +21,7 @@ use crate::logs;
 use crate::pg::Postgres;
 use crate::proc::{is_cancelled, Cancelled};
 use crate::service::{Service, ServiceConfig};
+use crate::sqlstats::SqlMeter;
 use crate::workspace;
 
 const PORT_BASELINE: u16 = 18081;
@@ -97,6 +100,48 @@ fn client() -> reqwest::Client {
         .expect("http client")
 }
 
+/// Logs in once if the scenario needs it. Returns a client that sends the token with every
+/// request, and the token for the load script. The services of one job share their data
+/// directory, so a token issued by one of them is valid for all of them.
+async fn authenticate(
+    rt: &Runtime,
+    http: reqwest::Client,
+    base_url: &str,
+) -> anyhow::Result<(reqwest::Client, Option<String>)> {
+    let Some(login) = &rt.spec.service.login else {
+        return Ok((http, None));
+    };
+    let resp = http
+        .post(format!("{base_url}{}", login.path))
+        .form(&login.form)
+        .send()
+        .await?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.context("the login answer is not JSON")?;
+    anyhow::ensure!(status.is_success(), "login failed with {status}: {body}");
+    let token = body[&login.token_field]
+        .as_str()
+        .with_context(|| format!("the login answer has no `{}`", login.token_field))?
+        .to_owned();
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::AUTHORIZATION,
+        format!("Bearer {token}").parse()?,
+    );
+    let authed = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .default_headers(headers)
+        .build()?;
+    Ok((authed, Some(token)))
+}
+
+fn sql_meter(rt: &Runtime) -> Option<SqlMeter> {
+    rt.spec
+        .database
+        .statement_stats
+        .then(|| SqlMeter::new(Postgres::new(rt), &rt.spec.database.name))
+}
+
 /// Builds the unmodified target once per source hash and reuses the binary afterwards.
 async fn baseline_binary(
     rt: &Runtime,
@@ -133,13 +178,21 @@ fn probe_paths(rt: &Runtime, cases: &[correctness::GoldenCase]) -> Vec<String> {
 }
 
 fn service_config<'a>(
-    rt: &Runtime,
+    rt: &'a Runtime,
     label: &'a str,
     binary: &'a Path,
     port: u16,
     db: &'a str,
     dir: &Path,
 ) -> ServiceConfig<'a> {
+    let data_dir = dir.join("data");
+    let _ = std::fs::create_dir_all(&data_dir);
+    let fill = |v: &str| {
+        v.replace("{port}", &port.to_string())
+            .replace("{database_url}", db)
+            .replace("{pool_size}", &rt.spec.service.pool_size.to_string())
+            .replace("{data_dir}", &data_dir.to_string_lossy())
+    };
     ServiceConfig {
         label,
         binary,
@@ -148,7 +201,24 @@ fn service_config<'a>(
         pool_size: rt.spec.service.pool_size,
         log_path: dir.join(format!("{label}.log")),
         startup_timeout: Duration::from_secs(rt.spec.service.startup_timeout_s),
+        health_path: rt.spec.service.health_path(),
+        extra_env: rt
+            .spec
+            .service
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), fill(v)))
+            .collect(),
     }
+}
+
+/// What one measured pair needs besides the two services: the bearer token, if any, and the SQL
+/// meter, if the scenario counts statements. `top_label` names the service whose first measured
+/// run supplies the most frequent statements.
+struct Measure<'a> {
+    auth: Option<&'a str>,
+    meter: Option<SqlMeter>,
+    top_label: Option<&'a str>,
 }
 
 /// Runs `first` then `second` with the same plan, returning stats in that order.
@@ -159,29 +229,40 @@ async fn measure_pair(
     index: u32,
     first: (&str, &str),
     second: (&str, &str),
+    m: &mut Measure<'_>,
 ) -> anyhow::Result<(LoadStats, LoadStats)> {
-    let plan = LoadPlan::measure(rt);
-    let mut a = load::run(
-        rt,
-        plan,
-        first.1,
-        &format!("{}-{index}", first.0),
-        dir,
-        &ctl.cancel,
-    )
-    .await?;
-    a.label = first.0.to_owned();
-    let mut b = load::run(
-        rt,
-        plan,
-        second.1,
-        &format!("{}-{index}", second.0),
-        dir,
-        &ctl.cancel,
-    )
-    .await?;
-    b.label = second.0.to_owned();
+    let a = measure_one(rt, ctl, dir, index, first, m).await?;
+    let b = measure_one(rt, ctl, dir, index, second, m).await?;
     Ok((a, b))
+}
+
+async fn measure_one(
+    rt: &Runtime,
+    ctl: &JobControl,
+    dir: &Path,
+    index: u32,
+    (label, url): (&str, &str),
+    m: &mut Measure<'_>,
+) -> anyhow::Result<LoadStats> {
+    if let Some(meter) = &m.meter {
+        meter.begin().await?;
+    }
+    let mut stats = load::run(
+        rt,
+        LoadPlan::measure(rt),
+        (url, m.auth),
+        &format!("{label}-{index}"),
+        dir,
+        &ctl.cancel,
+    )
+    .await?;
+    stats.label = label.to_owned();
+    if let Some(meter) = &mut m.meter {
+        meter
+            .end(label, stats.iterations, m.top_label == Some(label))
+            .await?;
+    }
+    Ok(stats)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -240,11 +321,23 @@ async fn baseline_inner(
         &http,
     )
     .await?;
+    let (http, token) = authenticate(rt, http, &a.base_url).await?;
+    let mut m = Measure {
+        auth: token.as_deref(),
+        meter: sql_meter(rt),
+        top_label: Some("baseline"),
+    };
     timer.lap("start");
 
     ctl.set_phase("correctness");
     let cases = correctness::load_cases(&rt.repo_path(&rt.spec.correctness.cases_dir))?;
-    let checked = correctness::check(&http, &a.base_url, &cases).await;
+    let checked = correctness::check(
+        &http,
+        &a.base_url,
+        &cases,
+        rt.spec.correctness.unordered_arrays,
+    )
+    .await;
     let passed = checked.all_passed();
     report.correctness = Some(checked);
     anyhow::ensure!(passed, "baseline does not match the golden cases");
@@ -271,7 +364,7 @@ async fn baseline_inner(
         load::run(
             rt,
             LoadPlan::warmup(rt),
-            &svc.base_url,
+            (&svc.base_url, m.auth),
             &format!("warmup-{}", svc.label),
             &dir,
             &ctl.cancel,
@@ -291,6 +384,7 @@ async fn baseline_inner(
                 index,
                 ("baseline", &a.base_url),
                 ("baseline-b", &b.base_url),
+                &mut m,
             )
             .await?
         } else {
@@ -301,6 +395,7 @@ async fn baseline_inner(
                 index,
                 ("baseline-b", &b.base_url),
                 ("baseline", &a.base_url),
+                &mut m,
             )
             .await?;
             (sa, sb)
@@ -320,6 +415,13 @@ async fn baseline_inner(
     let (summary, slowest) = logs::summarize(&dir.join("baseline.log"), 10);
     report.logs = summary;
     report.slow_requests = slowest;
+    // A service without its own SQL log gets its SQL counts from the database instead.
+    if let Some(meter) = &m.meter {
+        if report.logs.requests == 0 {
+            report.logs = meter.summary("baseline").unwrap_or_default();
+        }
+        report.statements = meter.top.clone();
+    }
     timer.lap("stop");
     report.timings_ms = timings;
     Ok(())
@@ -443,12 +545,30 @@ async fn trial_inner(
             return Ok(());
         }
     };
+    let (http, token) = authenticate(rt, http, &base.base_url).await?;
+    let mut m = Measure {
+        auth: token.as_deref(),
+        meter: sql_meter(rt),
+        top_label: None,
+    };
     timer.lap("start");
 
     ctl.set_phase("correctness");
     let cases = correctness::load_cases(&rt.repo_path(&rt.spec.correctness.cases_dir))?;
-    let base_check = correctness::check(&http, &base.base_url, &cases).await;
-    let cand_check = correctness::check(&http, &cand.base_url, &cases).await;
+    let base_check = correctness::check(
+        &http,
+        &base.base_url,
+        &cases,
+        rt.spec.correctness.unordered_arrays,
+    )
+    .await;
+    let cand_check = correctness::check(
+        &http,
+        &cand.base_url,
+        &cases,
+        rt.spec.correctness.unordered_arrays,
+    )
+    .await;
     let mut proceed = base_check.all_passed() && cand_check.all_passed();
     report.baseline_correctness = Some(base_check);
     report.correctness = Some(cand_check);
@@ -461,7 +581,11 @@ async fn trial_inner(
         let sets = &rt.spec.correctness.invariants;
         let base_inv = crate::invariants::check(sets, &base_resp);
         let cand_inv = crate::invariants::check(sets, &cand_resp);
-        let sampled = correctness::compare(&base_resp[cases.len()..], &cand_resp[cases.len()..]);
+        let sampled = correctness::compare(
+            &base_resp[cases.len()..],
+            &cand_resp[cases.len()..],
+            rt.spec.correctness.unordered_arrays,
+        );
         let clean = |r: &aiops_core::report::CorrectnessReport| r.total == 0 || r.all_passed();
         proceed = clean(&base_inv) && clean(&cand_inv) && clean(&sampled);
         report.baseline_invariants = Some(base_inv);
@@ -476,7 +600,7 @@ async fn trial_inner(
             load::run(
                 rt,
                 LoadPlan::warmup(rt),
-                &svc.base_url,
+                (&svc.base_url, m.auth),
                 &format!("warmup-{}", svc.label),
                 dir,
                 &ctl.cancel,
@@ -496,6 +620,7 @@ async fn trial_inner(
                     index,
                     ("baseline", &base.base_url),
                     ("candidate", &cand.base_url),
+                    &mut m,
                 )
                 .await?
             } else {
@@ -506,6 +631,7 @@ async fn trial_inner(
                     index,
                     ("candidate", &cand.base_url),
                     ("baseline", &base.base_url),
+                    &mut m,
                 )
                 .await?;
                 (b, c)
@@ -530,8 +656,18 @@ async fn trial_inner(
     }
     base.stop().await;
     cand.stop().await;
-    report.baseline_logs = Some(logs::summarize(&dir.join("baseline.log"), 0).0);
-    report.candidate_logs = Some(logs::summarize(&dir.join("candidate.log"), 0).0);
+    for (label, slot) in [
+        ("baseline", &mut report.baseline_logs),
+        ("candidate", &mut report.candidate_logs),
+    ] {
+        let mut summary = logs::summarize(&dir.join(format!("{label}.log")), 0).0;
+        if summary.requests == 0 {
+            if let Some(from_db) = m.meter.as_ref().and_then(|meter| meter.summary(label)) {
+                summary = from_db;
+            }
+        }
+        *slot = Some(summary);
+    }
     timer.lap("stop");
     report.timings_ms = timings;
     Ok(())
@@ -553,6 +689,7 @@ pub async fn generate_golden(rt: &Runtime, ctl: &JobControl) -> anyhow::Result<V
         &http,
     )
     .await?;
+    let (http, _) = authenticate(rt, http, &svc.base_url).await?;
     let cases = correctness::capture(&http, &svc.base_url, &rt.spec.correctness.requests).await?;
     svc.stop().await;
 

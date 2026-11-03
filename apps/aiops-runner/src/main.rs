@@ -13,6 +13,7 @@ mod logs;
 mod pg;
 mod proc;
 mod service;
+mod sqlstats;
 mod workspace;
 
 use std::path::PathBuf;

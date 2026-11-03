@@ -31,6 +31,8 @@ pub async fn build(
         .arg("--locked")
         .arg("--manifest-path")
         .arg(src_dir.join("Cargo.toml"))
+        .args(&rt.spec.target.cargo_args)
+        .envs(&rt.spec.target.build_env)
         .env("CARGO_TARGET_DIR", &rt.target_dir)
         .env("CARGO_TERM_COLOR", "never");
     if rt.offline {

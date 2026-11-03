@@ -37,11 +37,12 @@ impl LoadPlan {
 pub async fn run(
     rt: &Runtime,
     plan: LoadPlan,
-    target_url: &str,
+    target: (&str, Option<&str>),
     label: &str,
     out_dir: &Path,
     cancel: &CancellationToken,
 ) -> anyhow::Result<LoadStats> {
+    let (target_url, auth) = target;
     let summary_path = out_dir.join(format!("k6-{label}.json"));
     let _ = std::fs::remove_file(&summary_path);
     let load = &rt.spec.load;
@@ -57,6 +58,9 @@ pub async fn run(
         .env("TIMEOUT_MS", load.request_timeout_ms.to_string())
         .env("USERS", load.users.to_string())
         .env("SUMMARY_PATH", &summary_path);
+    if let Some(token) = auth {
+        cmd.env("AUTH_TOKEN", token);
+    }
     let timeout = Duration::from_secs(plan.duration_s as u64 + 60);
     run_checked(
         &mut cmd,

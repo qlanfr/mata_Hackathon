@@ -25,17 +25,21 @@ pub struct ServiceConfig<'a> {
     pub pool_size: u32,
     pub log_path: PathBuf,
     pub startup_timeout: Duration,
+    pub health_path: &'a str,
+    /// Scenario-specific environment, placeholders already filled in.
+    pub extra_env: Vec<(String, String)>,
 }
 
 impl Service {
     /// Starts the binary with a clean environment (no runner secrets leak into it) and waits
-    /// until `/healthz` answers.
+    /// until the health path answers.
     pub async fn start(cfg: ServiceConfig<'_>, client: &reqwest::Client) -> anyhow::Result<Self> {
         let mut cmd = Command::new(cfg.binary);
         cmd.env_clear()
             .env("DATABASE_URL", cfg.database_url)
             .env("PORT", cfg.port.to_string())
-            .env("POOL_SIZE", cfg.pool_size.to_string());
+            .env("POOL_SIZE", cfg.pool_size.to_string())
+            .envs(cfg.extra_env.iter().map(|(k, v)| (k, v)));
         let child = proc::spawn_logged(&mut cmd, &cfg.log_path)
             .with_context(|| format!("cannot start {}", cfg.label))?;
         let pid = child.id().context("service exited immediately")?;
@@ -58,7 +62,7 @@ impl Service {
                 );
             }
             let health = client
-                .get(format!("{}/healthz", service.base_url))
+                .get(format!("{}{}", service.base_url, cfg.health_path))
                 .timeout(Duration::from_secs(1))
                 .send()
                 .await;

@@ -7,3 +7,4 @@ node_modules
 *.log
 edge/worker-configuration.d.ts
 web/dist
+/external

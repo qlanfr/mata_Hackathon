@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Context;
@@ -33,6 +34,13 @@ pub struct TargetSpec {
     pub denied_paths: Vec<String>,
     /// Upper bound on edits per patch.
     pub max_edits: usize,
+    /// Extra `cargo build` arguments, e.g. `["--features", "postgresql"]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cargo_args: Vec<String>,
+    /// Extra environment for every build of this service, baseline and candidate alike: a pinned
+    /// toolchain (`RUSTUP_TOOLCHAIN`) or a profile override.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub build_env: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -41,6 +49,10 @@ pub struct DatabaseSpec {
     pub name: String,
     pub schema: String,
     pub seed: String,
+    /// Count SQL statements per request with `pg_stat_statements`, for services that do not log
+    /// their own per-request SQL counts. Also records the most frequent statements as evidence.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub statement_stats: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -48,6 +60,32 @@ pub struct DatabaseSpec {
 pub struct ServiceSpec {
     pub pool_size: u32,
     pub startup_timeout_s: u64,
+    /// Readiness path; `/healthz` when not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
+    /// Extra environment for the service. Values may use `{port}`, `{database_url}`,
+    /// `{pool_size}` and `{data_dir}` (a directory shared by the services of one job).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// Log in once per job; the token is sent as a bearer token with every check and load request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login: Option<LoginSpec>,
+}
+
+/// A form POST that returns a JSON object with a bearer token.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LoginSpec {
+    pub path: String,
+    pub form: BTreeMap<String, String>,
+    /// Field of the JSON answer that holds the token.
+    pub token_field: String,
+}
+
+impl ServiceSpec {
+    pub fn health_path(&self) -> &str {
+        self.health_path.as_deref().unwrap_or("/healthz")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -65,6 +103,10 @@ pub struct CorrectnessSpec {
     /// More requests, sent to both the baseline and the candidate and compared with each other.
     #[serde(default)]
     pub sample: Option<SampleSpec>,
+    /// Compare JSON arrays as multisets: for APIs whose clients do not depend on element order.
+    /// A patch may then reorder elements, but may not add, drop or change any.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unordered_arrays: bool,
 }
 
 /// Requests for the baseline-versus-candidate comparison: the first `requests` users of the load
@@ -98,6 +140,9 @@ pub struct LoadSpec {
     pub request_timeout_ms: u32,
     /// Number of distinct users the load script cycles through.
     pub users: u32,
+    /// The measured request, as shown to the model (for example `GET /api/sync`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
 }
 
 /// The pass/fail rules. Fixed before the run; models cannot change them.
@@ -165,5 +210,49 @@ impl ScenarioSpec {
             "target.max_edits must be at least 1"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Options added later must not change the hash of a scenario that does not use them, or every
+    /// recorded run of it would look like it was judged against another contract.
+    #[test]
+    fn unused_options_leave_the_scenario_hash_alone() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../scenarios/n-plus-one/scenario.toml"
+        ))
+        .unwrap();
+        let spec = ScenarioSpec::from_toml(&text).unwrap();
+        let json = serde_json::to_string(&spec).unwrap();
+        for key in [
+            "cargo_args",
+            "build_env",
+            "statement_stats",
+            "health_path",
+            "\"env\"",
+            "login",
+            "endpoint",
+        ] {
+            assert!(!json.contains(key), "{key} appears in {json}");
+        }
+        assert_eq!(spec.service.health_path(), "/healthz");
+    }
+
+    #[test]
+    fn every_scenario_in_the_repository_parses() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../scenarios");
+        let mut seen = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path().join("scenario.toml");
+            if path.exists() {
+                ScenarioSpec::load(&path).unwrap_or_else(|e| panic!("{}: {e:#}", path.display()));
+                seen += 1;
+            }
+        }
+        assert!(seen >= 2, "found {seen} scenarios");
     }
 }

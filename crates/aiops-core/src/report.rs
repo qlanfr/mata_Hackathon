@@ -181,6 +181,10 @@ pub struct BaselineReport {
     pub logs: ServiceLogSummary,
     /// Slowest request log records, verbatim.
     pub slow_requests: Vec<serde_json::Value>,
+    /// Most frequent SQL statements during one measured baseline run (`pg_stat_statements`),
+    /// for scenarios with `database.statement_stats`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub statements: Vec<serde_json::Value>,
     pub execution_error: Option<String>,
     pub env: EnvInfo,
     pub timings_ms: BTreeMap<String, u64>,

@@ -35,8 +35,9 @@ impl Postgres {
     /// Starts the server if needed and makes sure the scenario database holds the current seed.
     /// Returns the connection URL for the scenario database.
     pub async fn ensure(&self, rt: &Runtime, cancel: &CancellationToken) -> anyhow::Result<String> {
+        let stats = rt.spec.database.statement_stats;
         if !self.is_ready().await {
-            self.start(cancel).await?;
+            self.start(stats, cancel).await?;
         }
         // A server already on the port may belong to another work directory (another runner, or
         // a CLI run whose files are gone). Using it would mean experimenting on someone else's
@@ -51,6 +52,13 @@ impl Postgres {
             ours.display()
         );
         self.ensure_seeded(rt, cancel).await?;
+        if stats {
+            self.query(
+                "postgres",
+                "CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
+            )
+            .await?;
+        }
         Ok(self.url(&rt.spec.database.name))
     }
 
@@ -108,7 +116,7 @@ impl Postgres {
             .unwrap_or(false)
     }
 
-    async fn start(&self, cancel: &CancellationToken) -> anyhow::Result<()> {
+    async fn start(&self, statement_stats: bool, cancel: &CancellationToken) -> anyhow::Result<()> {
         let data = self.root.join("data");
         let sock = self.root.join("sock");
         std::fs::create_dir_all(&sock)?;
@@ -134,12 +142,15 @@ impl Postgres {
             .await?;
         }
 
-        let options = format!(
+        let mut options = format!(
             "-p {} -c listen_addresses=127.0.0.1 -c unix_socket_directories={} \
              -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=100",
             self.port,
             sock.display()
         );
+        if statement_stats {
+            options.push_str(" -c shared_preload_libraries=pg_stat_statements");
+        }
         let mut pg_ctl = self.server_command("pg_ctl");
         pg_ctl
             .arg("-D")
@@ -224,7 +235,7 @@ impl Postgres {
         cmd
     }
 
-    async fn query(&self, database: &str, sql: &str) -> anyhow::Result<String> {
+    pub async fn query(&self, database: &str, sql: &str) -> anyhow::Result<String> {
         let out = self
             .psql(database)
             .args(["-tA", "-c", sql])

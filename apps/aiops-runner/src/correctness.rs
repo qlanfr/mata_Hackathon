@@ -66,6 +66,7 @@ pub async fn check(
     client: &reqwest::Client,
     base_url: &str,
     cases: &[GoldenCase],
+    unordered: bool,
 ) -> CorrectnessReport {
     let mut results = Vec::with_capacity(cases.len());
     for case in cases {
@@ -74,7 +75,7 @@ pub async fn check(
             Ok((status, _)) if status != case.expect.status => {
                 Some(format!("status {status}, expected {}", case.expect.status))
             }
-            Ok((_, body)) => first_difference("$", &case.expect.body, &body),
+            Ok((_, body)) => differs(&case.expect.body, &body, unordered),
         };
         results.push(CaseResult {
             name: case.name.clone(),
@@ -137,6 +138,7 @@ pub async fn fetch_each(
 pub fn compare(
     baseline: &[crate::invariants::Response],
     candidate: &[crate::invariants::Response],
+    unordered: bool,
 ) -> CorrectnessReport {
     const MAX_LISTED: usize = 20;
     let mut cases = Vec::new();
@@ -146,7 +148,7 @@ pub fn compare(
             (Err(e), _) => Some(format!("baseline {e}")),
             (Ok(_), Err(e)) => Some(e.clone()),
             (Ok((bs, _)), Ok((cs, _))) if bs != cs => Some(format!("status {cs}, baseline {bs}")),
-            (Ok((_, bb)), Ok((_, cb))) => first_difference("$", bb, cb),
+            (Ok((_, bb)), Ok((_, cb))) => differs(bb, cb, unordered),
         };
         if let Some(detail) = detail {
             failed += 1;
@@ -184,6 +186,30 @@ pub async fn capture(
         });
     }
     Ok(cases)
+}
+
+fn differs(expected: &Value, actual: &Value, unordered: bool) -> Option<String> {
+    if unordered {
+        first_difference("$", &canonical(expected), &canonical(actual))
+    } else {
+        first_difference("$", expected, actual)
+    }
+}
+
+/// The value with every array sorted by its elements' canonical JSON, recursively. Two values
+/// are equal after this exactly when they differ at most in the order of array elements.
+pub fn canonical(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => {
+            let mut items: Vec<Value> = items.iter().map(canonical).collect();
+            items.sort_by_cached_key(|v| v.to_string());
+            Value::Array(items)
+        }
+        Value::Object(map) => {
+            Value::Object(map.iter().map(|(k, v)| (k.clone(), canonical(v))).collect())
+        }
+        other => other.clone(),
+    }
 }
 
 /// Describes the first place where `actual` differs from `expected`, as a JSON path.
@@ -260,6 +286,19 @@ mod tests {
     }
 
     #[test]
+    fn unordered_comparison_ignores_order_only() {
+        let a =
+            serde_json::json!({"Ciphers": [{"Id": 1, "Tags": ["x", "y"]}, {"Id": 2, "Tags": []}]});
+        let reordered =
+            serde_json::json!({"Ciphers": [{"Id": 2, "Tags": []}, {"Id": 1, "Tags": ["y", "x"]}]});
+        let changed =
+            serde_json::json!({"Ciphers": [{"Id": 2, "Tags": []}, {"Id": 1, "Tags": ["y"]}]});
+        assert!(differs(&a, &reordered, false).is_some());
+        assert!(differs(&a, &reordered, true).is_none());
+        assert!(differs(&a, &changed, true).is_some());
+    }
+
+    #[test]
     fn compare_lists_only_mismatches() {
         let ok = |b: Value| -> Result<(u16, Value), String> { Ok((200, b)) };
         let base = vec![
@@ -272,7 +311,7 @@ mod tests {
             ("/b".to_string(), ok(json!({"x": 5}))),
             ("/c".to_string(), Err("request failed: reset".to_string())),
         ];
-        let r = compare(&base, &cand);
+        let r = compare(&base, &cand, false);
         assert_eq!((r.total, r.passed, r.cases.len()), (3, 1, 2));
         assert_eq!(r.cases[0].detail.as_deref(), Some("$.x is 5, expected 2"));
     }

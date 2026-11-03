@@ -1,0 +1,75 @@
+# A real bug: Vaultwarden issue #1402, "N+1 query problem on api/sync", at the commit before the
+# fix (PR #2429, merged 2022-05-11). Vaultwarden is GPL-3.0 and is not part of this repository:
+# scripts/real-bug/vaultwarden-setup.sh clones it into external/, builds it, seeds a vault and
+# dumps the database that every measurement starts from. Golden answers are recorded from the
+# unchanged service with `aiops-runner golden` after that. No file here is editable by a model.
+id = "vaultwarden-sync"
+version = 1
+description = "Vaultwarden (open-source Bitwarden server: Rust, Rocket, Diesel) at commit 3abf173, a real project at a real version. GET /api/sync returns the user's whole vault. Goal: lower p95 at a fixed arrival rate without changing any response. The service is built with Rust 1.60 (2022), so newer syntax such as let-else does not compile."
+
+[target]
+source_dir = "external/vaultwarden"
+binary = "vaultwarden"
+allowed_paths = ["src/api/core/ciphers.rs", "src/db/models/*.rs"]
+denied_paths = ["Cargo.toml", "Cargo.lock", "build.rs", "migrations/**", "src/main.rs", "src/config.rs"]
+max_edits = 12
+cargo_args = ["--features", "postgresql"]
+# The toolchain of the time; today's compilers reject some of the locked crates. Thin LTO is off
+# for both the original and every candidate, to keep candidate builds short.
+build_env = { RUSTUP_TOOLCHAIN = "1.60.0", CARGO_PROFILE_RELEASE_LTO = "false" }
+
+[database]
+name = "vaultwarden"
+schema = "scenarios/vaultwarden-sync/schema.sql"
+seed = "external/vaultwarden-seed.sql"
+# Vaultwarden does not log SQL per request; count statements in the database instead.
+statement_stats = true
+
+[service]
+pool_size = 8
+startup_timeout_s = 60
+health_path = "/alive"
+env = { ROCKET_ADDRESS = "127.0.0.1", ROCKET_PORT = "{port}", DATABASE_MAX_CONNS = "{pool_size}", DATA_FOLDER = "{data_dir}", ENV_FILE = "{data_dir}/none.env", WEB_VAULT_ENABLED = "false", LOG_LEVEL = "warn", LOGIN_RATELIMIT_MAX_BURST = "100" }
+
+# The seeded user. The server stores whatever the client sends as the master-password hash.
+[service.login]
+path = "/identity/connect/token"
+token_field = "access_token"
+form = { grant_type = "password", username = "probe@example.com", password = "probe-hash", scope = "api offline_access", client_id = "web", device_type = "8", device_identifier = "00000000-0000-4000-8000-000000000001", device_name = "aiops-runner" }
+
+[correctness]
+cases_dir = "external/vaultwarden-cases"
+# Bitwarden clients sort vault items themselves; the order of array elements is not part of the
+# contract. Every element must still be present and identical.
+unordered_arrays = true
+requests = [
+  { name = "sync", path = "/api/sync?excludeDomains=true" },
+  { name = "ciphers", path = "/api/ciphers" },
+  { name = "folders", path = "/api/folders" },
+  { name = "profile", path = "/api/accounts/profile" },
+]
+
+[load]
+script = "scenarios/vaultwarden-sync/load.js"
+rate = 8
+warmup_s = 5
+duration_s = 20
+pre_allocated_vus = 10
+max_vus = 50
+request_timeout_ms = 5000
+users = 1
+endpoint = "GET /api/sync?excludeDomains=true (one user with 20 folders and 500 vault items)"
+
+[contract]
+pairs = 3
+min_improvement = 0.20
+max_noise = 0.15
+max_error_rate_increase = 0.0
+max_baseline_error_rate = 0.01
+
+[budget]
+max_candidates = 3
+max_model_turns = 30
+max_tool_calls = 60
+max_run_minutes = 75
+build_timeout_s = 1500

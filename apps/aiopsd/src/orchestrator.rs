@@ -1136,11 +1136,17 @@ impl App {
     fn observer_message(&self, run: &Run) -> String {
         let c = &self.spec.contract;
         format!(
-            "Scenario: {} — {}\nGoal: {}\nLoad: GET /users/{{user_id}}/orders?limit=20 at a fixed {} requests per second.\n\
+            "Scenario: {} — {}\nGoal: {}\nLoad: {} at a fixed {} requests per second.\n\
              Acceptance contract (fixed; nobody in this run can change it): a change is accepted only if every golden response stays identical \
              and the median p95 improvement over {} paired runs is at least {:.0}%, with every pair improving.\n\
              Inspect the baseline evidence and the code, then answer.",
-            self.spec.id, self.spec.description, run.goal, self.spec.load.rate, c.pairs, c.min_improvement * 100.0
+            self.spec.id,
+            self.spec.description,
+            run.goal,
+            self.spec.load.endpoint.as_deref().unwrap_or("GET /users/{user_id}/orders?limit=20"),
+            self.spec.load.rate,
+            c.pairs,
+            c.min_improvement * 100.0
         )
     }
 
