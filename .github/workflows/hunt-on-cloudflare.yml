@@ -1,0 +1,49 @@
+name: Hunt on Cloudflare
+
+# Starts a vulnerability hunt on the deployment with the `aiops` CLI and waits for the harness's
+# verdict on each finding. The weekly schedule (AIOPS_WEEKLY_HUNT_UTC) starts hunts by itself; this
+# is for starting one on demand. Runs when a push changes .github/hunt-request; its last
+# non-comment line is the Meta model (empty: the deployment's default).
+# Repository secret: ADMIN_TOKEN.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/hunt-request
+
+concurrency:
+  group: hunt-on-cloudflare
+  cancel-in-progress: false
+
+env:
+  AIOPS_URL: https://aiops-edge.yh9365.workers.dev
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build aiops
+        run: cargo build -q --release --locked -p aiops-cli
+      - name: Wait for any deploy in progress
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 60); do
+            busy=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-edge.yml --json status \
+              --jq '[.[] | select(.status == "in_progress" or .status == "queued" or .status == "pending" or .status == "waiting")] | length')
+            if [ "$busy" = 0 ]; then break; fi
+            echo "a deploy is in progress; waiting"; sleep 60
+          done
+      - name: Hunt
+        env:
+          AIOPS_ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          for _ in $(seq 30); do ./target/release/aiops info && break; sleep 10; done
+          model=$(grep -v '^\s*#' .github/hunt-request | grep -v '^\s*$' | tail -1 || true)
+          status=0
+          ./target/release/aiops hunt ${model:+--model "$model"} --wait --timeout-s 2400 2>&1 | tee hunt.txt || status=$?
+          { echo '```'; cat hunt.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # 0: nothing reproduced, 2: something reproduced. Both are results; anything else is not.
+          [ "$status" = 0 ] || [ "$status" = 2 ]
