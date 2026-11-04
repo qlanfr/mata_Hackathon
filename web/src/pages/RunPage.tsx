@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError, FLOW, TERMINAL, type RunState } from "../api";
+import { api, ApiError, FLOW, isHunt, runTitle, TERMINAL, type Finding, type RunState } from "../api";
 import { Stepper } from "../components/Stepper";
 import { OutcomePill, ProviderBadge, StatePill } from "../components/Status";
 import { Timeline } from "../components/Timeline";
@@ -50,7 +50,7 @@ export function RunPage({ id, askToken }: { id: string; askToken: () => Promise<
           <Link to="/">Runs</Link> / {short(run.id, 12)}
         </span>
         <div className="row">
-          <h1>{run.trigger?.kind === "alert" ? `Alert · ${run.trigger.fingerprint}` : run.trigger?.kind === "schedule" ? "Scheduled run" : "Manual run"}</h1>
+          <h1>{runTitle(run)}</h1>
           <StatePill state={run.state} large />
           <ProviderBadge provider={run.provider} />
           {live && <span className="live">live</span>}
@@ -67,18 +67,19 @@ export function RunPage({ id, askToken }: { id: string; askToken: () => Promise<
         {cancelError && <p className="error">Could not cancel: {cancelError}</p>}
       </header>
 
-      {run.summary && <Summary state={run.state} text={run.summary} />}
+      {run.summary && <Summary state={run.state} text={run.summary} hunt={isHunt(run)} />}
       {run.provider === "replay" && (
         <div className="banner warn">
           <span className="label">Replay model</span>
           <span className="small">
-            The observer and experimenter answers in this run are scripted. Baseline, build, golden checks, load and the verdict are real
-            measurements.
+            {isHunt(run)
+              ? "The hunter's answer in this run is scripted. The requests sent to the service and the harness's verdicts are real."
+              : "The observer and experimenter answers in this run are scripted. Baseline, build, golden checks, load and the verdict are real measurements."}
           </span>
         </div>
       )}
 
-      <Stepper state={run.state as RunState} visited={visited} />
+      {isHunt(run) ? <Findings findings={run.findings ?? []} state={run.state} /> : <Stepper state={run.state as RunState} visited={visited} />}
 
       <div className="grid-main">
         <section className="card" aria-labelledby="timeline-title">
@@ -90,6 +91,8 @@ export function RunPage({ id, askToken }: { id: string; askToken: () => Promise<
         </section>
 
         <div className="stack">
+          {!isHunt(run) && (
+            <>
           <section className="card" aria-labelledby="trials-title">
             <h2 id="trials-title">Experiments</h2>
             {trials.length === 0 && <p className="muted small">No experiment yet. The experimenter plans one after the baseline and the observation.</p>}
@@ -121,6 +124,8 @@ export function RunPage({ id, askToken }: { id: string; askToken: () => Promise<
               <p className="muted small">{FLOW.indexOf(run.state) <= FLOW.indexOf("BASELINING") ? "Measuring the unchanged service…" : "No baseline recorded."}</p>
             )}
           </section>
+            </>
+          )}
 
           {run.observation && (
             <section className="card" aria-labelledby="obs-title">
@@ -174,9 +179,9 @@ export function RunPage({ id, askToken }: { id: string; askToken: () => Promise<
   );
 }
 
-function Summary({ state, text }: { state: RunState; text: string }) {
-  const tone = state === "COMPLETED" ? "ok" : state === "FAILED" ? "bad" : TERMINAL.includes(state) ? "warn" : "info";
-  const label = state === "COMPLETED" ? "Verified change found" : state === "EXHAUSTED" ? "No verified change" : state === "FAILED" ? "Run failed" : state === "CANCELLED" ? "Cancelled" : "Status";
+function Summary({ state, text, hunt }: { state: RunState; text: string; hunt?: boolean }) {
+  const tone = hunt && state === "COMPLETED" ? "info" : state === "COMPLETED" ? "ok" : state === "FAILED" ? "bad" : TERMINAL.includes(state) ? "warn" : "info";
+  const label = hunt && state === "COMPLETED" ? "Hunt finished" : state === "COMPLETED" ? "Verified change found" : state === "EXHAUSTED" ? "No verified change" : state === "FAILED" ? "Run failed" : state === "CANCELLED" ? "Cancelled" : "Status";
   return (
     <div className={`banner ${tone}`} role="status">
       <span className="label">{label}</span>
@@ -217,4 +222,61 @@ function median(xs: number[]): number | null {
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/** A vulnerability hunt's suspects and, once probed, what the harness found for each. */
+function Findings({ findings, state }: { findings: Finding[]; state: string }) {
+  const tone = (v?: string) => (v === "REPRODUCED" ? "s-bad" : v === "SERVER_ERROR" ? "s-warn" : v ? "s-ok" : "");
+  return (
+    <section className="card" aria-labelledby="findings-title">
+      <div className="card-head">
+        <h2 id="findings-title">Findings</h2>
+        <span className="hint">the model suspects; the harness sends each attack to the unchanged service in the sandbox</span>
+      </div>
+      {findings.length === 0 ? (
+        <p className="muted small">{state === "HUNTING" ? "The model is reading the code…" : "No suspected vulnerabilities."}</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="data findings">
+            <thead>
+              <tr>
+                <th>Suspected</th>
+                <th>Harness</th>
+              </tr>
+            </thead>
+            <tbody>
+              {findings.map((f, i) => (
+                <tr key={i}>
+                  <td>
+                    <b>{f.title}</b> <span className="tag">{f.class}</span>
+                    <br />
+                    <span className="muted small">{f.location}</span>
+                    <br />
+                    <span className="small">{f.explanation}</span>
+                    <br />
+                    <span className="mono small attack-path">attack: GET {safeDecode(f.poc_path)}</span>
+                    <br />
+                    <span className="mono small attack-path">control: GET {safeDecode(f.control_path)} · evidence “{f.evidence}”</span>
+                  </td>
+                  <td>
+                    <span className={`pill ${tone(f.verdict)}`}>{f.verdict ?? (state === "PROBING" ? "PROBING" : "SUSPECTED")}</span>
+                    {f.reason && <div className="small">{f.reason}</div>}
+                    {f.poc_excerpt && f.verdict === "REPRODUCED" && <div className="mono small attack-path muted">{f.poc_excerpt.slice(0, 200)}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function safeDecode(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }

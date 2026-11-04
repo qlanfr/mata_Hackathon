@@ -1,5 +1,5 @@
 {
-  "_note": "Scripted replay for development and demos without a Meta API key. Runs that use it are labelled 'replay'. Answers cite evidence IDs and contain no measured numbers.",
+  "_note": "Scripted replay for development and demos without a Meta API key. Runs that use it are labelled 'replay'. Answers cite evidence IDs and contain no measured numbers. The hunter script reports one real finding (the SQL injection in product search) and one false claim (a path traversal) so that both harness verdicts are exercised; neither is model output.",
   "observer": [
     [
       {
@@ -102,6 +102,55 @@
             ]
           },
           "stop_reason": null
+        }
+      }
+    ]
+  ],
+  "hunter": [
+    [
+      {
+        "type": "call",
+        "name": "list_source",
+        "arguments": {}
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/main.rs"
+        }
+      },
+      {
+        "type": "call",
+        "name": "read_source",
+        "arguments": {
+          "path": "src/search.rs"
+        }
+      },
+      {
+        "type": "answer",
+        "content": {
+          "summary": "Product search places the query text inside its SQL; the order list binds its parameters.",
+          "findings": [
+            {
+              "title": "SQL injection in product search",
+              "class": "sql-injection",
+              "location": "src/search.rs: search_products",
+              "poc_path": "/products/search?q=zzz%27%20UNION%20SELECT%20id%2C%20name%2C%200%20FROM%20users%20--%20",
+              "control_path": "/products/search?q=zzz",
+              "evidence": "user-1",
+              "explanation": "format! places q inside a quoted ILIKE pattern, so a quote ends the literal and a UNION reads the users table."
+            },
+            {
+              "title": "Path traversal through the search query",
+              "class": "path-traversal",
+              "location": "src/search.rs: search_products",
+              "poc_path": "/products/search?q=..%2F..%2F..%2Fetc%2Fpasswd",
+              "control_path": "/products/search?q=lamp",
+              "evidence": "root:x:0:0",
+              "explanation": "A claim the harness should not reproduce: the query never reaches the file system."
+            }
+          ]
         }
       }
     ]

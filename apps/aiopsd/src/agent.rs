@@ -56,6 +56,7 @@ pub struct Limits {
 /// The role's instructions; vulnerability-fix scenarios have their own.
 pub fn instructions(role: Role, security: bool) -> &'static str {
     match (role, security) {
+        (Role::Hunter, _) => include_str!("../../../prompts/hunter.md"),
         (Role::Observer, false) => include_str!("../../../prompts/observer.md"),
         (Role::Experimenter, false) => include_str!("../../../prompts/experimenter.md"),
         (Role::Observer, true) => include_str!("../../../prompts/security-observer.md"),

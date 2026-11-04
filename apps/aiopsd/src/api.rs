@@ -26,6 +26,7 @@ pub fn router(app: Shared) -> Router {
         .route("/api/v1/info", get(healthz))
         .route("/internal/tick", post(tick))
         .route("/api/v1/runs", get(list_runs).post(create_run))
+        .route("/api/v1/hunts", post(create_hunt))
         .route("/api/v1/alerts", post(create_alert))
         .route("/api/v1/runs/{id}", get(get_run))
         .route("/api/v1/runs/{id}/events", get(run_events))
@@ -52,6 +53,7 @@ fn run_view(r: &Row) -> Value {
         "observation": r.json("observation"), "summary": r.opt_str("summary"), "error": r.opt_str("error"),
         "cancel_requested": r.i64("cancel_requested") != 0, "baseline_artifact_id": r.opt_str("baseline_artifact_id"),
         "created_at": r.i64("created_at"), "updated_at": r.i64("updated_at"), "finished_at": r.get("finished_at"),
+        "findings": r.json("findings"),
     })
 }
 
@@ -118,6 +120,47 @@ struct CreateRun {
     goal: Option<String>,
     /// Meta model ID for this run (for example `muse-wonder-1.0`); the configured model otherwise.
     model: Option<String>,
+}
+
+/// Starts a vulnerability hunt, or answers 409 with the one already running.
+async fn create_hunt(State(app): State<Shared>, body: Option<Json<CreateRun>>) -> Response {
+    let model = body
+        .and_then(|Json(b)| b.model)
+        .map(|m| m.trim().to_owned())
+        .filter(|m| !m.is_empty());
+    if let Some(m) = &model {
+        if !app.provider.is_meta()
+            || m.len() > 64
+            || !m
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "invalid model id, or no Meta provider",
+            );
+        }
+    }
+    match app.daily_run_refusal().await {
+        Ok(Some(reason)) => return error(StatusCode::TOO_MANY_REQUESTS, &reason),
+        Ok(None) => {}
+        Err(e) => return internal(e),
+    }
+    match app
+        .create_hunt(json!({ "kind": "hunt" }), model.as_deref())
+        .await
+    {
+        Ok(Ok(id)) => {
+            kick(&app);
+            (StatusCode::CREATED, Json(json!({ "run_id": id }))).into_response()
+        }
+        Ok(Err(existing)) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "a hunt is already running", "run_id": existing })),
+        )
+            .into_response(),
+        Err(e) => internal(e),
+    }
 }
 
 async fn create_run(State(app): State<Shared>, body: Option<Json<CreateRun>>) -> Response {

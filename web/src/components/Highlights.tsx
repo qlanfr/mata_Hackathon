@@ -1,6 +1,6 @@
 // The runs page's first screen: the latest verified change with its before/after numbers, the
 // model results computed from the runs themselves, and how the harness itself was tested.
-import { api, type Run, type TrialReport } from "../api";
+import { api, isHunt, type Run, type TrialReport } from "../api";
 import { ago, ms, pct, short } from "../format";
 import { useLoad } from "../hooks";
 import { Link } from "../router";
@@ -41,7 +41,7 @@ export function BeforeAfter({ from, to, unit }: { from: string; to: string; unit
 }
 
 function pickLatest(runs: Run[]): Run | undefined {
-  const done = runs.filter((r) => r.state === "COMPLETED");
+  const done = runs.filter((r) => r.state === "COMPLETED" && !isHunt(r));
   return done.find((r) => r.provider.startsWith("meta:")) ?? done[0];
 }
 
@@ -122,12 +122,12 @@ export function LatestVerified({ runs }: { runs: Run[] }) {
 export function ModelResults({ runs }: { runs: Run[] }) {
   const byModel = new Map<string, Run[]>();
   for (const r of runs) {
-    if (!r.provider.startsWith("meta:")) continue;
+    if (!r.provider.startsWith("meta:") || isHunt(r)) continue;
     byModel.set(r.provider, [...(byModel.get(r.provider) ?? []), r]);
   }
   if (byModel.size === 0) return null;
   const rows = [...byModel.entries()].sort((a, b) => b[1].length - a[1].length);
-  const unfinished = runs.filter((r) => r.provider.startsWith("meta:") && (r.state === "FAILED" || r.state === "EXHAUSTED"));
+  const unfinished = runs.filter((r) => r.provider.startsWith("meta:") && !isHunt(r) && (r.state === "FAILED" || r.state === "EXHAUSTED"));
 
   return (
     <section className="card" aria-labelledby="models-title">

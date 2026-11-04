@@ -17,7 +17,7 @@ interface Rendered {
 
 const clock = (t?: number) => (t ? new Date(t).toISOString().slice(11, 16) + " UTC" : "later");
 
-const ROLE = (r: string) => (r === "observer" ? "Observer" : r === "experimenter" ? "Experimenter" : r);
+const ROLE = (r: string) => (r === "observer" ? "Observer" : r === "experimenter" ? "Experimenter" : r === "hunter" ? "Hunter" : r);
 
 function render(e: RunEvent): Rendered | null {
   const p = e.payload ?? {};
@@ -27,7 +27,7 @@ function render(e: RunEvent): Rendered | null {
         actor: "control",
         who: "control plane",
         title: "Run created",
-        detail: `${p.trigger?.kind === "alert" ? `Alert ${p.trigger.fingerprint}` : p.trigger?.kind === "schedule" ? `Scheduled daily run (${p.trigger.at})` : "Started manually"} · budget ${p.budget?.max_candidates} candidates, ${p.budget?.max_model_turns} model turns · target p95 −${pct(p.contract?.min_improvement, 0)}`,
+        detail: p.trigger?.kind === "hunt" ? `Vulnerability hunt${p.trigger.schedule ? ` (weekly, ${p.trigger.schedule})` : ", started manually"} · budget ${p.budget?.max_model_turns} model turns` : `${p.trigger?.kind === "alert" ? `Alert ${p.trigger.fingerprint}` : p.trigger?.kind === "schedule" ? `Scheduled daily run (${p.trigger.at})` : "Started manually"} · budget ${p.budget?.max_candidates} candidates, ${p.budget?.max_model_turns} model turns · target p95 −${pct(p.contract?.min_improvement, 0)}`,
       };
     case "alert_merged":
       return { actor: "control", who: "control plane", title: "Duplicate alert merged into this run", detail: p.trigger?.summary ?? p.trigger?.fingerprint, compact: true };
@@ -86,7 +86,7 @@ function render(e: RunEvent): Rendered | null {
       };
     }
     case "job_submitted":
-      return { actor: "runner", who: "runner", title: `${p.kind === "baseline" ? "Baseline" : "Trial"} job started${p.attempt > 1 ? ` (attempt ${p.attempt})` : ""}`, detail: `runner boot ${short(p.runner_boot_id)}`, compact: true };
+      return { actor: "runner", who: "runner", title: `${p.kind === "baseline" ? "Baseline" : p.kind === "probe" ? "Probe" : "Trial"} job started${p.attempt > 1 ? ` (attempt ${p.attempt})` : ""}`, detail: `runner boot ${short(p.runner_boot_id)}`, compact: true };
     case "job_waiting":
       return { actor: "runner", tone: "problem", who: "runner", title: "Waiting for the runner", detail: p.problem, compact: true };
     case "job_lost":
@@ -162,6 +162,24 @@ function render(e: RunEvent): Rendered | null {
         title: `Machine too noisy to judge: measuring again at ${clock(p.retry_at)} (retry ${p.attempt} of ${p.of})`,
         detail: p.reason,
       };
+    case "hunt_findings":
+      return {
+        actor: "model",
+        who: "hunter",
+        title: `Hunter reported ${p.findings?.length ?? 0} suspected vulnerabilit${p.findings?.length === 1 ? "y" : "ies"}`,
+        detail: p.summary,
+      };
+    case "hunt_result": {
+      const list = (p.findings ?? []) as { verdict: string; title: string }[];
+      const reproduced = list.filter((f) => f.verdict === "REPRODUCED");
+      return {
+        actor: "runner",
+        tone: reproduced.length ? "verdict-bad" : "verdict-ok",
+        who: "harness",
+        title: `${reproduced.length} of ${list.length} reproduced against the unchanged service`,
+        detail: list.map((f) => `${f.verdict}: ${f.title}`).join(" · "),
+      };
+    }
     case "suspicious_input":
       return {
         actor: "model",

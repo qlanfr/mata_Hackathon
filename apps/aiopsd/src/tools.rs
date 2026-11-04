@@ -29,6 +29,9 @@ fn object(properties: Value, required: &[&str]) -> Value {
 }
 
 pub fn allowed(role: Role, name: &str, security: bool) -> bool {
+    if role == Role::Hunter {
+        return matches!(name, "list_source" | "read_source");
+    }
     match name {
         "query_metrics" | "read_request_evidence" => !security,
         "list_source" | "read_source" | "search_experiments" => true,

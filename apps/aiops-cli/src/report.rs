@@ -115,6 +115,7 @@ pub async fn run_summary(api: &Api, run_id: &str) -> anyhow::Result<Value> {
         "error": run["error"],
         "usage": run["usage"],
         "aa_noise": run["aa_noise"],
+        "findings": run["findings"],
         "trials": trials,
         "verified_measurements": measured,
     }))
@@ -195,6 +196,15 @@ pub fn run_text(s: &Value) -> String {
             m["golden"].as_str().unwrap_or("-"),
             m["invariants"].as_str().unwrap_or("-"),
             m["sample"].as_str().unwrap_or("-"),
+        ));
+    }
+    for f in s["findings"].as_array().into_iter().flatten() {
+        out.push(format!(
+            "  finding: {:<15} {} ({}) — {}",
+            f["verdict"].as_str().unwrap_or("SUSPECTED"),
+            f["title"].as_str().unwrap_or("-"),
+            f["location"].as_str().unwrap_or("-"),
+            f["reason"].as_str().unwrap_or("not probed yet"),
         ));
     }
     if let Some(summary) = s["summary"].as_str() {

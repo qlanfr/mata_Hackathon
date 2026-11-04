@@ -1,6 +1,7 @@
 //! HTTP job API. Only reachable through the Worker's Runner Durable Object, never publicly.
 //!
-//! - `POST /jobs` `{ "kind": "baseline" }` or `{ "kind": "trial", "patch": {...} }` → 202
+//! - `POST /jobs` `{ "kind": "baseline" }`, `{ "kind": "trial", "patch": {...} }` or
+//!   `{ "kind": "probe", "requests": ["/path?query", ...] }` → 202
 //! - `GET /jobs/{id}` → status, phase and, when done, the raw report
 //! - `DELETE /jobs/{id}` → cancel; processes are stopped before the job reports `cancelled`
 //! - `GET /healthz`
@@ -29,7 +30,13 @@ use crate::jobs::{self, JobControl};
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum JobRequest {
     Baseline,
-    Trial { patch: PatchProposal },
+    Trial {
+        patch: PatchProposal,
+    },
+    /// Vulnerability hunt: send these request paths to the unchanged service.
+    Probe {
+        requests: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -155,6 +162,7 @@ async fn create_job(State(state): State<AppState>, Json(req): Json<JobRequest>) 
     let kind = match req {
         JobRequest::Baseline => "baseline",
         JobRequest::Trial { .. } => "trial",
+        JobRequest::Probe { .. } => "probe",
     };
     jobs.insert(
         job_id.clone(),
@@ -183,6 +191,9 @@ async fn create_job(State(state): State<AppState>, Json(req): Json<JobRequest>) 
             JobRequest::Baseline => serde_json::to_value(jobs::run_baseline(&rt, &control).await),
             JobRequest::Trial { patch } => {
                 serde_json::to_value(jobs::run_trial(&rt, &patch, &control).await)
+            }
+            JobRequest::Probe { requests } => {
+                serde_json::to_value(jobs::run_probe(&rt, &requests, &control).await)
             }
         }
         .unwrap_or_else(|e| json!({ "execution_error": format!("cannot serialize report: {e}") }));

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, ApiError, TERMINAL } from "../api";
+import { api, ApiError, runTitle, TERMINAL } from "../api";
 import { HarnessScorecard, LatestVerified, ModelResults, RealBug } from "../components/Highlights";
 import { ProviderBadge, StatePill } from "../components/Status";
 import { ago, duration } from "../format";
@@ -90,7 +90,7 @@ export function RunsPage({ askToken }: { askToken: () => Promise<boolean> }) {
                       </td>
                       <td style={{ minWidth: 260 }}>
                         <a href={`/runs/${r.id}`} onClick={(e) => e.preventDefault()}>
-                          {r.trigger?.kind === "alert" ? `Alert · ${r.trigger.fingerprint}` : r.trigger?.kind === "schedule" ? "Scheduled run" : "Manual run"}
+                          {runTitle(r)}
                         </a>
                         <div className="muted small clip">{r.summary ?? r.goal}</div>
                       </td>

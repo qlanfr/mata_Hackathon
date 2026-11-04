@@ -16,3 +16,19 @@ export function scheduleDue(dailyRunUtc: string | undefined, now: Date): number 
   if (minute < at || minute >= at + 60) return null;
   return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 }
+
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/**
+ * The same for the weekly vulnerability hunt, `sun 16:00` style (UTC): on that day, from that
+ * minute, for one hour. Returns the start of the UTC day when due, otherwise null.
+ */
+export function weeklyDue(weeklyUtc: string | undefined, now: Date): number | null {
+  const m = /^([a-z]+)\s+(\d{1,2}:\d{2})$/.exec((weeklyUtc ?? "").trim().toLowerCase());
+  if (!m) return null;
+  const day = WEEKDAYS.findIndex((d) => m[1].startsWith(d));
+  if (day < 0) return null;
+  const today = (now.getUTCDay() + 6) % 7; // getUTCDay: 0 = Sunday
+  if (today !== day) return null;
+  return scheduleDue(m[2], now);
+}

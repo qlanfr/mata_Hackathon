@@ -27,18 +27,23 @@ pub struct Ops {
     pub daily_run_limit: u64,
     /// Minute of the UTC day for the scheduled run.
     pub daily_run_at: Option<u32>,
+    /// Day of the week (0 = Monday) and minute of the UTC day for the weekly vulnerability hunt.
+    pub weekly_hunt_at: Option<(u32, u32)>,
     pub notify_url: Option<String>,
     pub public_url: String,
     http: reqwest::Client,
 }
 
 impl Ops {
+    /// One argument per setting, as the command line gives them.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         noise_retries: i64,
         noise_retry_minutes: u64,
         daily_token_limit: u64,
         daily_run_limit: u64,
         daily_run_utc: &str,
+        weekly_hunt_utc: &str,
         notify_url: &str,
         public_url: &str,
     ) -> anyhow::Result<Self> {
@@ -48,6 +53,7 @@ impl Ops {
             daily_token_limit,
             daily_run_limit,
             daily_run_at: parse_hhmm(daily_run_utc)?,
+            weekly_hunt_at: parse_weekly(weekly_hunt_utc)?,
             notify_url: Some(notify_url.trim().to_owned())
                 .filter(|u| u.starts_with("https://") || u.starts_with("http://")),
             public_url: public_url.trim_end_matches('/').to_owned(),
@@ -71,6 +77,7 @@ impl Ops {
             "daily_token_limit": self.daily_token_limit,
             "daily_run_limit": self.daily_run_limit,
             "daily_run_utc": self.daily_run_at.map(|m| format!("{:02}:{:02}", m / 60, m % 60)),
+            "weekly_hunt_utc": self.weekly_hunt_at.map(|(d, m)| format!("{} {:02}:{:02}", WEEKDAYS[d as usize], m / 60, m % 60)),
             "notifications": self.notify_url.is_some(),
         })
     }
@@ -91,6 +98,30 @@ pub fn parse_hhmm(s: &str) -> anyhow::Result<Option<u32>> {
         "daily run time `{s}` is not a time of day"
     );
     Ok(Some(h * 60 + m))
+}
+
+const WEEKDAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/// `sun 16:00` to (day of the week, minute of the day); empty means off.
+pub fn parse_weekly(s: &str) -> anyhow::Result<Option<(u32, u32)>> {
+    let s = s.trim().to_ascii_lowercase();
+    if s.is_empty() || s == "off" {
+        return Ok(None);
+    }
+    let (day, time) = s.split_once(' ').ok_or_else(|| {
+        anyhow::anyhow!("weekly hunt time `{s}` must look like `sun 16:00` (UTC)")
+    })?;
+    let day = WEEKDAYS
+        .iter()
+        .position(|d| day.starts_with(d))
+        .ok_or_else(|| anyhow::anyhow!("`{day}` is not a day of the week"))? as u32;
+    let minute = parse_hhmm(time)?.ok_or_else(|| anyhow::anyhow!("weekly hunt needs a time"))?;
+    Ok(Some((day, minute)))
+}
+
+/// Day of the week of a UTC timestamp, 0 = Monday. 1970-01-01 was a Thursday.
+pub fn weekday(now_ms: u64) -> u32 {
+    ((now_ms / DAY_MS + 3) % 7) as u32
 }
 
 pub fn day_start(now_ms: u64) -> u64 {
@@ -215,6 +246,44 @@ impl App {
         }
     }
 
+    /// Starts this week's vulnerability hunt once its day and time have come. Called on every
+    /// tick by the lease holder; "a hunt created today" makes it once per week.
+    pub async fn maybe_schedule_hunt(&self) -> anyhow::Result<Option<String>> {
+        let Some((day, at)) = self.ops.weekly_hunt_at else {
+            return Ok(None);
+        };
+        let now = crate::now_ms();
+        if weekday(now) != day || ((now % DAY_MS) / 60_000) < at as u64 {
+            return Ok(None);
+        }
+        let started = self
+            .count_today("SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?1 AND json_extract(trigger, '$.kind') = 'hunt'")
+            .await?;
+        if started > 0 || self.active_run_with("hunt").await?.is_some() {
+            return Ok(None);
+        }
+        if let Some(reason) = self.daily_run_refusal().await? {
+            tracing::warn!(%reason, "weekly hunt skipped");
+            return Ok(None);
+        }
+        let label = format!(
+            "{} {:02}:{:02} UTC",
+            WEEKDAYS[day as usize],
+            at / 60,
+            at % 60
+        );
+        match self
+            .create_hunt(json!({ "kind": "hunt", "schedule": label }), None)
+            .await?
+        {
+            Ok(id) => {
+                tracing::info!(run = %id, "weekly hunt started");
+                Ok(Some(id))
+            }
+            Err(_) => Ok(None),
+        }
+    }
+
     /// Tells the webhook that a run finished. Never fails the caller; the outcome is an event.
     pub async fn notify(&self, run_id: &str, state: &str) {
         let Some(url) = self.ops.notify_url.clone() else {
@@ -272,7 +341,9 @@ impl App {
             .opt_str("summary")
             .or_else(|| run.opt_str("error"))
             .unwrap_or_default();
+        let hunt = run.json("trigger")["kind"] == "hunt";
         let headline = match (state, improvement) {
+            ("COMPLETED", _) if hunt => "vulnerability hunt finished".to_owned(),
             ("COMPLETED", Some(i)) => format!("VERIFIED: p95 improved {:.1}%", i * 100.0),
             ("COMPLETED", None) if verified.is_some() && self.spec.security.is_some() => {
                 "VERIFIED: every attack blocked, responses unchanged".to_owned()
@@ -318,6 +389,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_weekly_times() {
+        assert_eq!(parse_weekly("").unwrap(), None);
+        assert_eq!(parse_weekly("sun 16:00").unwrap(), Some((6, 16 * 60)));
+        assert_eq!(parse_weekly("Monday 01:30").unwrap(), Some((0, 90)));
+        assert!(parse_weekly("someday 16:00").is_err());
+        assert!(parse_weekly("sun").is_err());
+        // 2026-11-04 is a Wednesday, 2026-11-08 a Sunday.
+        assert_eq!(weekday(1_793_772_000_000), 2);
+        assert_eq!(weekday(1_793_772_000_000 + 4 * DAY_MS), 6);
+    }
+
+    #[test]
     fn webhook_shapes() {
         let event = json!({ "event": "run_finished", "text": "hi" });
         assert_eq!(
@@ -344,7 +427,7 @@ mod tests {
 
     #[test]
     fn retries_wait_longer_each_time() {
-        let ops = Ops::new(3, 20, 0, 0, "", "", "").unwrap();
+        let ops = Ops::new(3, 20, 0, 0, "", "", "", "").unwrap();
         assert_eq!(ops.retry_at(0, 1), 20 * 60_000);
         assert_eq!(ops.retry_at(0, 2), 40 * 60_000);
         assert_eq!(day_start(DAY_MS * 3 + 5), DAY_MS * 3);

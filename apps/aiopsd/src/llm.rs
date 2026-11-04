@@ -18,6 +18,8 @@ use serde_json::{json, Value};
 pub enum Role {
     Observer,
     Experimenter,
+    /// Reads the code for vulnerabilities and names each with an attack request to try.
+    Hunter,
 }
 
 impl Role {
@@ -25,6 +27,7 @@ impl Role {
         match self {
             Role::Observer => "observer",
             Role::Experimenter => "experimenter",
+            Role::Hunter => "hunter",
         }
     }
 }
@@ -419,6 +422,8 @@ enum ScriptTurn {
 struct Script {
     observer: Vec<Vec<ScriptTurn>>,
     experimenter: Vec<Vec<ScriptTurn>>,
+    #[serde(default)]
+    hunter: Vec<Vec<ScriptTurn>>,
 }
 
 pub struct ReplayProvider {
@@ -434,6 +439,7 @@ impl ReplayProvider {
             scripts: HashMap::from([
                 (Role::Observer, script.observer),
                 (Role::Experimenter, script.experimenter),
+                (Role::Hunter, script.hunter),
             ]),
         })
     }
@@ -475,6 +481,7 @@ impl ReplayProvider {
                     })
                     .to_string(),
                     Role::Observer => anyhow::bail!("replay script has no observer turn {turn}"),
+                    Role::Hunter => anyhow::bail!("replay script has no hunter turn {turn}"),
                 },
             },
         };

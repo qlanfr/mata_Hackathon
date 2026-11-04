@@ -35,7 +35,7 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], pollMs?: num
 const EVENT_KINDS = [
   "run_created", "alert_merged", "cancel_requested", "state", "job_submitted", "job_waiting", "job_lost",
   "baseline_measured", "agent_started", "model_call", "tool_call", "agent_repair", "agent_wrap_up", "observation", "plan",
-  "duplicate_patch", "patch_refused", "cancel_sent", "step_error", "env_retry", "notified", "notify_failed", "suspicious_input",
+  "duplicate_patch", "patch_refused", "cancel_sent", "step_error", "env_retry", "notified", "notify_failed", "suspicious_input", "hunt_findings", "hunt_result",
 ];
 
 /**

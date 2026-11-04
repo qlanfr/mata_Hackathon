@@ -56,10 +56,12 @@ impl RunnerClient {
         &self,
         kind: &str,
         patch: Option<&PatchProposal>,
+        requests: Option<&[String]>,
     ) -> anyhow::Result<Submit> {
-        let body = match patch {
-            Some(p) => json!({ "kind": kind, "patch": p }),
-            None => json!({ "kind": kind }),
+        let body = match (patch, requests) {
+            (Some(p), _) => json!({ "kind": kind, "patch": p }),
+            (None, Some(r)) => json!({ "kind": kind, "requests": r }),
+            (None, None) => json!({ "kind": kind }),
         };
         let resp = self
             .http

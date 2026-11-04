@@ -103,6 +103,9 @@ struct Opts {
     /// Start one run every UTC day at HH:MM; empty means no schedule.
     #[arg(long, env = "AIOPS_DAILY_RUN_UTC", default_value = "")]
     daily_run_utc: String,
+    /// Start one vulnerability hunt a week, e.g. `sun 16:00` (UTC); empty means none.
+    #[arg(long, env = "AIOPS_WEEKLY_HUNT_UTC", default_value = "")]
+    weekly_hunt_utc: String,
     /// Webhook told when a run finishes (Slack, Discord or any JSON endpoint).
     #[arg(
         long,
@@ -186,6 +189,7 @@ async fn main() -> anyhow::Result<()> {
             opts.daily_token_limit,
             opts.daily_run_limit,
             &opts.daily_run_utc,
+            &opts.weekly_hunt_utc,
             &opts.notify_url,
             &opts.public_url,
         )?,

@@ -8,7 +8,7 @@
 //
 // Containers reach D1, R2 and the runner only through the outbound handlers below.
 import { Container, ContainerProxy, getContainer } from "@cloudflare/containers";
-import { scheduleDue } from "./schedule";
+import { scheduleDue, weeklyDue } from "./schedule";
 
 export { ContainerProxy };
 
@@ -23,6 +23,7 @@ type Bindings = Cloudflare.Env & {
   AIOPS_DAILY_TOKEN_LIMIT?: string;
   AIOPS_DAILY_RUN_LIMIT?: string;
   AIOPS_DAILY_RUN_UTC?: string;
+  AIOPS_WEEKLY_HUNT_UTC?: string;
   AIOPS_PUBLIC_URL?: string;
   /** Secret: where finished runs are announced (Slack, Discord or any JSON webhook). */
   NOTIFY_WEBHOOK_URL?: string;
@@ -61,6 +62,7 @@ export class AiopsdContainer extends Container<Bindings> {
       AIOPS_DAILY_TOKEN_LIMIT: env.AIOPS_DAILY_TOKEN_LIMIT ?? "0",
       AIOPS_DAILY_RUN_LIMIT: env.AIOPS_DAILY_RUN_LIMIT ?? "0",
       AIOPS_DAILY_RUN_UTC: env.AIOPS_DAILY_RUN_UTC ?? "",
+      AIOPS_WEEKLY_HUNT_UTC: env.AIOPS_WEEKLY_HUNT_UTC ?? "",
       AIOPS_PUBLIC_URL: env.AIOPS_PUBLIC_URL ?? "",
       AIOPS_NOTIFY_URL: env.NOTIFY_WEBHOOK_URL ?? "",
     };
@@ -129,6 +131,16 @@ export default {
           "SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?1 AND json_extract(trigger, '$.kind') = 'schedule'",
         )
           .bind(dayStart)
+          .first<{ n: number }>();
+        wake = !started || started.n === 0;
+      }
+      // The weekly vulnerability hunt, the same way.
+      const huntDay = wake ? null : weeklyDue(env.AIOPS_WEEKLY_HUNT_UTC, new Date(controller.scheduledTime));
+      if (huntDay !== null) {
+        const started = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?1 AND json_extract(trigger, '$.kind') = 'hunt'",
+        )
+          .bind(huntDay)
           .first<{ n: number }>();
         wake = !started || started.n === 0;
       }

@@ -8,6 +8,7 @@
 //!   aiops alert <fingerprint>       report a symptom from monitoring
 //!   aiops cancel <run_id>           stop a run
 //!   aiops apply <trial_id>          put a VERIFIED patch into this checkout (for a pull request)
+//!   aiops hunt --wait               hunt for vulnerabilities; the harness tries each finding
 //!   aiops mcp                       serve the same operations as MCP tools over stdio
 //!
 //! The deployment comes from --url or AIOPS_URL. Starting, alerting and cancelling need the admin
@@ -102,6 +103,18 @@ enum Command {
     Cancel { run_id: String },
     /// Serve the operations as MCP tools over stdio, for AI clients such as Claude Code or Cursor.
     Mcp,
+    /// Hunt for vulnerabilities: the model reads the code and names suspects, each with an
+    /// attack request; the harness sends them to the unchanged service in the sandbox and says
+    /// which it reproduced. Exit code 0 when nothing was reproduced, 2 when something was.
+    Hunt {
+        /// Meta model ID for this hunt.
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        wait: bool,
+        #[arg(long, default_value_t = 1800)]
+        timeout_s: u64,
+    },
     /// Apply a VERIFIED trial's patch to this checkout, with the harness's own path policy and
     /// security gate, and write a pull request title and description.
     Apply {
@@ -305,6 +318,35 @@ async fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                         .unwrap_or_default(),
                 )
             });
+        }
+        Command::Hunt {
+            model,
+            wait,
+            timeout_s,
+        } => {
+            let run_id = api.hunt(model.as_deref()).await?;
+            eprintln!("hunt {run_id}\n  {}", api.run_url(&run_id));
+            if !wait {
+                print(
+                    cli.json,
+                    &serde_json::json!({ "run_id": run_id, "url": api.run_url(&run_id) }),
+                    || run_id.clone(),
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            let code = follow(&api, &run_id, Duration::from_secs(timeout_s), cli.json).await?;
+            if code != ExitCode::from(3) {
+                let detail = api.run(&run_id).await?;
+                let reproduced = detail["run"]["findings"]
+                    .as_array()
+                    .is_some_and(|f| f.iter().any(|j| j["verdict"] == "REPRODUCED"));
+                return Ok(if reproduced {
+                    ExitCode::from(2)
+                } else {
+                    ExitCode::SUCCESS
+                });
+            }
+            return Ok(code);
         }
         Command::Cancel { run_id } => {
             let answer = api.cancel(&run_id).await?;

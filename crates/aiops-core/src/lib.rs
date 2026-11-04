@@ -7,6 +7,7 @@
 //! - [`evaluator`]: the only place that turns measurements into a verdict.
 
 pub mod evaluator;
+pub mod hunt;
 pub mod patch;
 pub mod report;
 pub mod scenario;

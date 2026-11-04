@@ -3,7 +3,7 @@
 
 export type RunState =
   | "QUEUED" | "COLLECTING" | "BASELINING" | "PLANNING" | "PREPARING" | "BUILDING"
-  | "CHECKING" | "BENCHMARKING" | "EVALUATING" | "CANCELLING"
+  | "CHECKING" | "BENCHMARKING" | "EVALUATING" | "CANCELLING" | "HUNTING" | "PROBING"
   | "COMPLETED" | "EXHAUSTED" | "FAILED" | "CANCELLED";
 
 export type Outcome = "VERIFIED" | "REJECTED" | "INCONCLUSIVE" | "EXECUTION_ERROR" | "POLICY_REJECTED";
@@ -30,7 +30,7 @@ export interface Run {
   provider: string;
   scenario_id: string;
   scenario_hash: string;
-  trigger: { kind: string; fingerprint?: string; service?: string; summary?: string };
+  trigger: { kind: string; fingerprint?: string; service?: string; summary?: string; at?: string; schedule?: string };
   budget: Budget;
   usage: Usage;
   aa_noise: number | null;
@@ -42,7 +42,35 @@ export interface Run {
   created_at: number;
   updated_at: number;
   finished_at: number | null;
+  /** Vulnerability hunts: the suspects, with the harness's verdict once probed. */
+  findings?: Finding[] | null;
 }
+
+export interface Finding {
+  title: string;
+  class: string;
+  location: string;
+  poc_path: string;
+  control_path: string;
+  evidence: string;
+  explanation: string;
+  verdict?: "REPRODUCED" | "SERVER_ERROR" | "NOT_REPRODUCED";
+  reason?: string;
+  poc_status?: number;
+  control_status?: number;
+  poc_excerpt?: string;
+}
+
+/** What started a run, as a title. */
+export function runTitle(run: Pick<Run, "trigger">): string {
+  const t = run.trigger;
+  if (t?.kind === "alert") return `Alert · ${t.fingerprint}`;
+  if (t?.kind === "schedule") return "Scheduled run";
+  if (t?.kind === "hunt") return t.schedule ? "Weekly vulnerability hunt" : "Vulnerability hunt";
+  return "Manual run";
+}
+
+export const isHunt = (run: Pick<Run, "trigger">) => run.trigger?.kind === "hunt";
 
 export interface Evaluation {
   outcome: Outcome;

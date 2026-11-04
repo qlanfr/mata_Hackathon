@@ -118,6 +118,19 @@ impl Api {
             .context("the API did not return a run_id")
     }
 
+    /// Starts a vulnerability hunt; returns its run ID (the running one if a hunt is in progress).
+    pub async fn hunt(&self, model: Option<&str>) -> anyhow::Result<String> {
+        let mut body = json!({});
+        if let Some(model) = model {
+            body["model"] = json!(model);
+        }
+        let answer = self.post("/api/v1/hunts", body).await?;
+        answer["run_id"]
+            .as_str()
+            .map(str::to_owned)
+            .context("the API did not return a run_id")
+    }
+
     /// An alert from monitoring: starts a run, or joins the active run with the same fingerprint.
     pub async fn alert(
         &self,

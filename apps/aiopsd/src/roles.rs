@@ -220,3 +220,64 @@ mod tests {
         assert!(parse_structured::<ExperimentPlan>(stop).is_ok());
     }
 }
+
+/// The hunter's answer: suspected vulnerabilities, each with requests the harness will send.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HuntReport {
+    pub summary: String,
+    pub findings: Vec<aiops_core::hunt::Suspect>,
+}
+
+/// Most suspects one hunt may report.
+pub const MAX_SUSPECTS: usize = 5;
+
+impl Structured for HuntReport {
+    const NAME: &'static str = "hunt_report";
+
+    fn schema() -> Value {
+        let s = json!({ "type": "string" });
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["summary", "findings"],
+            "properties": {
+                "summary": s,
+                "findings": { "type": "array", "items": {
+                    "type": "object", "additionalProperties": false,
+                    "required": ["title", "class", "location", "poc_path", "control_path", "evidence", "explanation"],
+                    "properties": {
+                        "title": s, "location": s, "poc_path": s, "control_path": s, "evidence": s, "explanation": s,
+                        "class": { "type": "string", "enum": ["sql-injection", "idor", "path-traversal", "information-leak", "auth-bypass", "denial-of-service", "other"] }
+                    }
+                }}
+            }
+        })
+    }
+
+    fn check(&self) -> Result<(), String> {
+        if self.findings.len() > MAX_SUSPECTS {
+            return Err(format!(
+                "report at most {MAX_SUSPECTS} findings, the strongest first"
+            ));
+        }
+        for f in &self.findings {
+            aiops_core::hunt::check_path(&f.poc_path)?;
+            aiops_core::hunt::check_path(&f.control_path)?;
+            if f.poc_path == f.control_path {
+                return Err(format!(
+                    "`{}`: the control request must differ from the attack request",
+                    f.title
+                ));
+            }
+            if f.evidence.trim().chars().count() < aiops_core::hunt::MIN_EVIDENCE {
+                return Err(format!(
+                    "`{}`: the evidence must be at least {} characters that appear only if the attack worked",
+                    f.title,
+                    aiops_core::hunt::MIN_EVIDENCE
+                ));
+            }
+        }
+        Ok(())
+    }
+}

@@ -691,6 +691,103 @@ async fn trial_inner(
 }
 
 // ---------------------------------------------------------------------------------------------
+// Probe job
+
+/// Most requests one probe job sends.
+const MAX_PROBES: usize = 20;
+/// Most of each response kept for the report.
+const PROBE_BODY_CHARS: usize = 4000;
+
+/// For a vulnerability hunt: sends each request path to the unchanged service in the sandbox and
+/// records what came back. A request that crashes the service is recorded, and the service is
+/// started again for the rest.
+pub async fn run_probe(
+    rt: &Runtime,
+    requests: &[String],
+    ctl: &JobControl,
+) -> aiops_core::hunt::ProbeReport {
+    let mut report = aiops_core::hunt::ProbeReport {
+        scenario_id: rt.spec.id.clone(),
+        scenario_hash: rt.scenario_hash.clone(),
+        ..Default::default()
+    };
+    if let Err(err) = probe_inner(rt, requests, ctl, &mut report).await {
+        report.execution_error = Some(if is_cancelled(&err) {
+            "cancelled".into()
+        } else {
+            format!("{err:#}")
+        });
+    }
+    report
+}
+
+async fn probe_inner(
+    rt: &Runtime,
+    requests: &[String],
+    ctl: &JobControl,
+    report: &mut aiops_core::hunt::ProbeReport,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        requests.len() <= MAX_PROBES,
+        "at most {MAX_PROBES} requests per probe job"
+    );
+    for path in requests {
+        aiops_core::hunt::check_path(path).map_err(anyhow::Error::msg)?;
+    }
+    let dir = rt
+        .work_dir
+        .join("probes")
+        .join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&dir)?;
+    let http = client();
+
+    ctl.set_phase("database");
+    let db = Postgres::new(rt).ensure(rt, &ctl.cancel).await?;
+    ctl.set_phase("build");
+    let (bin, _, build) = baseline_binary(rt, ctl).await?;
+    anyhow::ensure!(build.ok, "baseline build failed: {}", build.log_tail);
+
+    ctl.set_phase("start");
+    let start = |http: &reqwest::Client| {
+        let cfg = service_config(rt, "probe", &bin, PORT_BASELINE, &db, &dir);
+        let http = http.clone();
+        async move { Service::start(cfg, &http).await }
+    };
+    let mut svc = start(&http).await?;
+    let (authed, _) = authenticate(rt, http.clone(), &svc.base_url).await?;
+
+    ctl.set_phase("probe");
+    for path in requests {
+        ctl.check()?;
+        let mut probe = aiops_core::hunt::Probe {
+            path: path.clone(),
+            ..Default::default()
+        };
+        match authed.get(format!("{}{path}", svc.base_url)).send().await {
+            Ok(resp) => {
+                probe.status = resp.status().as_u16();
+                let body = resp.text().await.unwrap_or_default();
+                probe.body = body.chars().take(PROBE_BODY_CHARS).collect();
+            }
+            Err(e) => probe.body = format!("no response: {e}"),
+        }
+        if let Some(exit) = svc.exit_status() {
+            probe.service_exited = Some(exit);
+            report.probes.push(probe);
+            svc = start(&http).await?;
+            continue;
+        }
+        report.probes.push(probe);
+    }
+    ctl.set_phase("stop");
+    svc.stop().await;
+    if !rt.keep_workspaces {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
 // Golden job
 
 /// Records the baseline's responses to the scenario's case requests as golden files.

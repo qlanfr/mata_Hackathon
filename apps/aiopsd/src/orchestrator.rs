@@ -236,6 +236,9 @@ impl App {
         if let Err(err) = self.maybe_schedule().await {
             tracing::warn!(error = %format!("{err:#}"), "scheduled run check failed");
         }
+        if let Err(err) = self.maybe_schedule_hunt().await {
+            tracing::warn!(error = %format!("{err:#}"), "weekly hunt check failed");
+        }
         let rows = self
             .db
             .query(
@@ -291,6 +294,8 @@ impl App {
         }
         match run.state.as_str() {
             "QUEUED" => self.start_baseline(run).await,
+            "HUNTING" => self.hunt(run).await,
+            "PROBING" => self.drive_job(run).await,
             "COLLECTING" | "BASELINING" | "PREPARING" | "BUILDING" | "CHECKING"
             | "BENCHMARKING" => self.drive_job(run).await,
             "PLANNING" => self.plan(run).await,
@@ -501,7 +506,16 @@ impl App {
                 }
                 None => None,
             };
-            match self.runner.submit(&kind, patch.as_ref()).await {
+            let requests = if kind == "probe" {
+                Some(self.probe_requests(run).await?)
+            } else {
+                None
+            };
+            match self
+                .runner
+                .submit(&kind, patch.as_ref(), requests.as_deref())
+                .await
+            {
                 Ok(Submit::Accepted {
                     job_id: runner_job_id,
                     boot_id,
@@ -598,6 +612,7 @@ impl App {
                 let run = self.follow_phases(run, &kind, &status.history).await?;
                 match kind.as_str() {
                     "baseline" => self.finish_baseline(&run, result).await,
+                    "probe" => self.finish_probe(&run, result).await,
                     _ => self.finish_trial(&run, &job, result).await,
                 }
             }
@@ -1213,6 +1228,254 @@ impl App {
             &[("summary", json!(summary))],
             vec![close_trial],
             json!({ "cleanup": how }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // Vulnerability hunts (see aiops_core::hunt)
+
+    /// Starts a hunt: the hunter reads the code and names suspects, the runner sends each one's
+    /// requests to the unchanged service, and the rules in `aiops_core::hunt` judge them. One hunt
+    /// at a time: `Err(existing_id)` while one is running.
+    pub async fn create_hunt(
+        &self,
+        trigger: Value,
+        model: Option<&str>,
+    ) -> anyhow::Result<Result<String, String>> {
+        let id = uuid::Uuid::now_v7().to_string();
+        let now = crate::now_ms();
+        let provider = self.provider.label_for(model);
+        let goal =
+            "Find vulnerabilities an HTTP request can exploit, and prove each with a request.";
+        let insert = self
+            .db
+            .execute(
+                "INSERT INTO runs (id, fingerprint, scenario_id, scenario_hash, goal, trigger, state, provider, budget, usage, created_at, updated_at) \
+                 VALUES (?1, 'hunt', ?2, ?3, ?4, ?5, 'HUNTING', ?6, ?7, ?8, ?9, ?9)",
+                vec![
+                    json!(id),
+                    json!(self.spec.id),
+                    json!(self.scenario_hash),
+                    json!(goal),
+                    json!(trigger.to_string()),
+                    json!(provider),
+                    json!(serde_json::to_string(&self.spec.budget)?),
+                    json!(serde_json::to_string(&RunUsage::default())?),
+                    json!(now),
+                ],
+            )
+            .await;
+        if let Err(err) = insert {
+            if is_unique_violation(&err) {
+                return Ok(Err(self.active_run_with("hunt").await?.unwrap_or_default()));
+            }
+            return Err(err);
+        }
+        events::append(
+            &self.db,
+            &id,
+            "run_created",
+            json!({ "goal": goal, "trigger": trigger, "provider": provider, "scenario": self.spec.id, "scenario_hash": self.scenario_hash, "budget": self.spec.budget }),
+        )
+        .await?;
+        Ok(Ok(id))
+    }
+
+    async fn hunt(&self, run: &Run) -> anyhow::Result<()> {
+        if let Some(reason) = self.daily_token_refusal().await? {
+            return self.exhaust(run, &reason, &run.usage).await;
+        }
+        let baseline = BaselineReport::default();
+        let ctx = ToolContext {
+            db: &self.db,
+            run_id: &run.id,
+            spec: &self.spec,
+            repo_root: &self.repo_root,
+            baseline: &baseline,
+            aa_noise: None,
+        };
+        let mut usage = run.usage.clone();
+        let limits = Self::limits(run);
+        events::append(
+            &self.db,
+            &run.id,
+            "agent_started",
+            json!({ "role": "hunter" }),
+        )
+        .await?;
+        let message = format!(
+            "Service: {} (source under {}). Find the vulnerabilities an HTTP GET request can exploit, and give each an attack request, a control request and evidence as the instructions describe.",
+            self.spec.id, self.spec.target.source_dir
+        );
+        let report = match agent::run_role::<crate::roles::HuntReport>(
+            &self.provider,
+            run.model(),
+            Role::Hunter,
+            0,
+            message,
+            &ctx,
+            &mut usage,
+            &limits,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(AgentError::Budget(m)) => {
+                return self
+                    .exhaust(run, &format!("hunter stopped: {m}"), &usage)
+                    .await
+            }
+            Err(e) => {
+                return self
+                    .fail(run, &format!("hunter failed: {e}"), Some(&usage))
+                    .await
+            }
+        };
+        let findings = serde_json::to_value(&report.findings)?;
+        events::append(
+            &self.db,
+            &run.id,
+            "hunt_findings",
+            json!({ "summary": report.summary, "findings": findings }),
+        )
+        .await?;
+        if report.findings.is_empty() {
+            let summary = format!("No suspected vulnerabilities. {}", report.summary);
+            return self
+                .transition(
+                    run,
+                    "COMPLETED",
+                    &[
+                        ("summary", json!(summary)),
+                        ("findings", json!("[]")),
+                        ("usage", json!(serde_json::to_string(&usage)?)),
+                    ],
+                    vec![],
+                    json!({ "suspects": 0 }),
+                )
+                .await
+                .map(|_| ());
+        }
+        let job = Self::job_insert(&run.id, None, "probe", 1);
+        self.transition(
+            run,
+            "PROBING",
+            &[
+                ("findings", json!(findings.to_string())),
+                ("usage", json!(serde_json::to_string(&usage)?)),
+            ],
+            vec![job],
+            json!({ "suspects": report.findings.len() }),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Each suspect's attack request, then its control request.
+    async fn probe_requests(&self, run: &Run) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .suspects(run)
+            .await?
+            .iter()
+            .flat_map(|s| [s.poc_path.clone(), s.control_path.clone()])
+            .collect())
+    }
+
+    async fn suspects(&self, run: &Run) -> anyhow::Result<Vec<aiops_core::hunt::Suspect>> {
+        let row = self
+            .db
+            .query_one(
+                "SELECT findings FROM runs WHERE id = ?1",
+                vec![json!(run.id)],
+            )
+            .await?
+            .context("run missing")?;
+        Ok(serde_json::from_value(row.json("findings")).unwrap_or_default())
+    }
+
+    /// The bodies of the scenario's golden responses: what ordinary requests return.
+    fn golden_bodies(&self) -> Vec<String> {
+        let dir = self.repo_root.join(&self.spec.correctness.cases_dir);
+        let mut bodies = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Ok(text) = std::fs::read_to_string(entry.path()) {
+                    if let Ok(case) = serde_json::from_str::<Value>(&text) {
+                        bodies.push(case["expect"]["body"].to_string());
+                    }
+                }
+            }
+        }
+        bodies
+    }
+
+    async fn finish_probe(&self, run: &Run, result: Value) -> anyhow::Result<()> {
+        let report: aiops_core::hunt::ProbeReport = serde_json::from_value(result.clone())
+            .context("runner returned an invalid probe report")?;
+        let artifact_id = self
+            .artifacts
+            .put_json(&run.id, "probe_report", &result)
+            .await?;
+        if let Some(err) = &report.execution_error {
+            return self.fail(run, &format!("probe failed: {err}"), None).await;
+        }
+        let suspects = self.suspects(run).await?;
+        let golden = self.golden_bodies();
+        let missing = aiops_core::hunt::Probe::default();
+        let find = |path: &str| {
+            report
+                .probes
+                .iter()
+                .find(|p| p.path == path)
+                .unwrap_or(&missing)
+        };
+        let judged: Vec<aiops_core::hunt::Judged> = suspects
+            .iter()
+            .map(|s| aiops_core::hunt::judge(s, find(&s.poc_path), find(&s.control_path), &golden))
+            .collect();
+        let reproduced: Vec<&str> = judged
+            .iter()
+            .filter(|j| j.verdict == aiops_core::hunt::Verdict::Reproduced)
+            .map(|j| j.suspect.title.as_str())
+            .collect();
+        let errors = judged
+            .iter()
+            .filter(|j| j.verdict == aiops_core::hunt::Verdict::ServerError)
+            .count();
+        let summary = format!(
+            "Hunt: {} suspected, {} reproduced by the harness{}{}.",
+            judged.len(),
+            reproduced.len(),
+            if errors > 0 {
+                format!(", {errors} caused a server error")
+            } else {
+                String::new()
+            },
+            if reproduced.is_empty() {
+                String::new()
+            } else {
+                format!(": {}", reproduced.join("; "))
+            }
+        );
+        let value = serde_json::to_value(&judged)?;
+        events::append(
+            &self.db,
+            &run.id,
+            "hunt_result",
+            json!({ "artifact_id": artifact_id, "findings": value }),
+        )
+        .await?;
+        self.transition(
+            run,
+            "COMPLETED",
+            &[
+                ("findings", json!(value.to_string())),
+                ("summary", json!(summary)),
+            ],
+            vec![],
+            json!({ "reproduced": reproduced.len(), "suspects": judged.len() }),
         )
         .await?;
         Ok(())
