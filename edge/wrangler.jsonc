@@ -33,7 +33,7 @@
     "AIOPS_DAILY_TOKEN_LIMIT": "1500000",
     "AIOPS_DAILY_RUN_LIMIT": "30",
     // One scheduled run per UTC day at this time (02:00 in Korea). "" turns the schedule off.
-    "AIOPS_DAILY_RUN_UTC": "17:00",
+    "AIOPS_DAILY_RUN_UTC": "05:50",
     // Links in notifications. The webhook itself is the NOTIFY_WEBHOOK_URL secret.
     "AIOPS_PUBLIC_URL": "https://aiops-edge.yh9365.workers.dev"
   },

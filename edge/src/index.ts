@@ -8,6 +8,7 @@
 //
 // Containers reach D1, R2 and the runner only through the outbound handlers below.
 import { Container, ContainerProxy, getContainer } from "@cloudflare/containers";
+import { scheduleDue } from "./schedule";
 
 export { ContainerProxy };
 
@@ -116,10 +117,22 @@ export default {
     return Response.json({ error: "not_found" }, { status: 404 });
   },
 
-  async scheduled(_controller, env, ctx): Promise<void> {
+  async scheduled(controller, env, ctx): Promise<void> {
     try {
       const active = await env.DB.prepare(`SELECT COUNT(*) AS n FROM runs WHERE state NOT IN ${TERMINAL}`).first<{ n: number }>();
-      if (active && active.n > 0) {
+      let wake = Boolean(active && active.n > 0);
+      // The daily scheduled run: aiopsd may be asleep when its time comes, so wake it until the
+      // day's scheduled run exists (for at most an hour, see scheduleDue).
+      const dayStart = wake ? null : scheduleDue(env.AIOPS_DAILY_RUN_UTC, new Date(controller.scheduledTime));
+      if (dayStart !== null) {
+        const started = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM runs WHERE created_at >= ?1 AND json_extract(trigger, '$.kind') = 'schedule'",
+        )
+          .bind(dayStart)
+          .first<{ n: number }>();
+        wake = !started || started.n === 0;
+      }
+      if (wake) {
         ctx.waitUntil(
           aiopsd(env)
             .fetch("http://aiopsd/internal/tick?source=cron", { method: "POST" })
