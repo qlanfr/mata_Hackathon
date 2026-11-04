@@ -1,0 +1,3 @@
+# Changing this file on a push runs the Hunt on Cloudflare workflow (.github/workflows/hunt-on-cloudflare.yml).
+# The last non-comment line is the Meta model; leave it empty for the deployment's default.
+muse-spark-1.3
