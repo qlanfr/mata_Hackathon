@@ -89,8 +89,11 @@ On the deployment:
 | Settings live | `aiops info` against the deployment ([PR workflow run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685)) | `schedule 17:00 UTC  daily runs 30  daily tokens 1500000  noise retries 3 every 20 min  notifications off` |
 | PR workflow, dry run | [run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685) | picked the newest VERIFIED run (`01a1a1fe`, the deploy's check run), applied its patch, wrote the description (p95 31.4 → 3.3 ms, SQL 81.8 → 3.0, pairs 89.0 / 89.2 / 89.8%, golden 14/14), built the patched service, uploaded diff and description |
 
+The first scheduled run on the deployment did not start (17:00 UTC on 3 November). The cron woke aiopsd only while a run was unfinished, and aiopsd had gone to sleep. The cron now also wakes it from the scheduled minute until the day's scheduled run exists, for at most an hour.
+
+To check the fix, the schedule was set to 05:50 UTC and deployed. Run `01a1a51b` (trigger `schedule`) started at 05:50 on 4 November without any API call. The schedule then went back to 17:00 UTC.
+
 Not yet seen on the deployment:
-- a scheduled run;
 - a retry after noise;
 - a notification: no webhook secret is set;
 - an opened pull request: the workflow ran as a dry run.

@@ -11,7 +11,7 @@ The model only proposes. It has no tool that changes anything, no network access
 | Layer | What it stops | Checked |
 | --- | --- | --- |
 | **Path policy** | Edits outside the service's source, or to the request tracker, golden answers, Cargo files or `main.rs` | Trap patches in CI |
-| **Security gate** (`crates/aiops-core/src/security.rs`), before anything is built | Patches that add any of the following:<br>• `unsafe`, `libc`, `asm!` or `static mut`<br>• a process, a network connection, a secret read<br>• a file read, write or copy<br>• reading files into the binary (`include_str!`)<br>• SQL built with `format!`<br>• administrative SQL (`COPY ... PROGRAM`, `LOCK`, `pg_sleep`, `ALTER`, `GRANT`, ...)<br>• edits to files named like auth, crypto, session or token code | 7 trap patches in CI, unit tests |
+| **Security gate** (`crates/aiops-core/src/security.rs`), before anything is built | Patches that add any of the following:<br>• `unsafe`, `libc`, `asm!` or `static mut`<br>• a process, a network connection, a secret read<br>• a file read, write or copy<br>• reading files into the binary (`include_str!`)<br>• SQL built with `format!`<br>• administrative SQL (`COPY ... PROGRAM`, `LOCK`, `pg_sleep`, `ALTER`, `GRANT`, ...)<br>• edits to files named like auth, crypto, session or token code | 7 trap patches in CI ([run 41780673745](https://github.com/qlanfr/mata_Hackathon/actions/runs/41780673745): 23 of 23 trap patches got the expected verdict), unit tests |
 | **Sandbox** (runner container) | No internet, no secrets, a non-root user, scenario and golden files read-only, a clean environment for the service | Container E2E, Dockerfile |
 | **Least-privilege database role** | The service connects as `aiops_svc`, not the superuser, and may only read the scenario's tables. Statements are cut off at 10 s, lock waits at 2 s, idle transactions at 10 s | Locally, as that role (below) |
 | **Measurement isolation** | While one service is measured, the other is frozen (`SIGSTOP`), so a candidate cannot slow the baseline down to fake an improvement | Locally, before and after (below) |
@@ -43,7 +43,7 @@ Now the service connects as a non-superuser role. Run as that role against the s
 | Before (no freezing) | 46.4 / 40.1 / 78.8 ms (normal: about 21 ms) | 21.5 / 22.2 / 25.8 ms | 53.7 / 44.7 / 67.2%, none of it real | INCONCLUSIVE, only because the baseline spread exceeded 15% |
 | After (the idle service is frozen) | 24.3 / 21.5 / 22.2 ms | 21.5 / 22.4 / 22.2 ms | 11.4 / -4.1 / -0.1% | INCONCLUSIVE, no improvement |
 
-A saboteur that slowed the baseline evenly could have passed the spread check, so before the freeze this was a real path to a false VERIFIED.
+A saboteur that slowed the baseline evenly could have passed the spread check, so before the freeze this was a real path to a false VERIFIED. In CI, inside the network-isolated runner image, the same trap measured 0.4 / -1.5 / -0.6% and was REJECTED.
 
 **The gate was narrower than its description.** It missed reading a golden answer into the binary with `include_str!`, file reads and copies, administrative SQL in static strings, `libc`, `asm!` and `static mut`. Each is now covered by a rule and a trap patch. SQL is matched only inside string literals, so Rust code like `for update in updates` does not trip it.
 
@@ -98,7 +98,11 @@ Locally, with a scripted hunter (replay, not model output):
 - the SQL injection in product search was REPRODUCED: a UNION returned user names;
 - a false path-traversal claim was NOT_REPRODUCED.
 
-A hunt with a Meta model on the Cloudflare deployment: in progress.
+On the Cloudflare deployment with `muse-spark-1.3` ([Hunt on Cloudflare run 41782307203](https://github.com/qlanfr/mata_Hackathon/actions/runs/41782307203), hunt `01a1a52f`, 3 model turns, 6 tool calls, 92 s):
+- The model named one suspect, the SQL injection in `src/search.rs: search_products`. That is the right place.
+- The harness judged it **NOT_REPRODUCED**: the model's attack request came back without the evidence it had named.
+- So the first real hunt pointed at the real problem but did not prove it, and the harness did not take the claim on trust.
+- One hunt is one data point.
 
 "Zero-day" here means a vulnerability nobody has reported in **your own service's code**, proven by a working request in the sandbox. Two limits:
 - **REPRODUCED means the claimed behaviour happened, not that it is a vulnerability.** Whether a caller may see that data is a judgement for a person. The harness has no notion of who may see what.

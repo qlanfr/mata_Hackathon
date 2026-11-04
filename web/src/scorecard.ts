@@ -12,16 +12,16 @@ export interface ScoreItem {
 
 const repo = "https://github.com/qlanfr/mata_Hackathon";
 
-export const SCORECARD_AS_OF = "2026-11-03";
+export const SCORECARD_AS_OF = "2026-11-04";
 
 export const SCORECARD: ScoreItem[] = [
   {
     label: "Trap patches",
-    value: "19 / 19",
+    value: "23 / 23",
     detail:
-      "Hand-written patches, each built to fail exactly one gate (wrong item order, leaked orders, rounded totals, edited golden answers, slower code, a crash, a race under load, a build error), and four that add dangerous code (SQL built with format!, unsafe, a secret read, a network call) for the security gate. Every one got the expected verdict for the expected reason.",
+      "Hand-written patches, each built to fail exactly one gate: wrong item order, leaked orders, rounded totals, edited golden answers, slower code, a crash, a race under load, a build error. Seven add dangerous code for the security gate, among them a shell command run through SQL and a golden answer compiled into the binary. One burns CPU while idle to slow the baseline, and is caught by freezing the service that is not being measured. Every one got the expected verdict for the expected reason.",
     source: "CI · Harness suite, network-isolated runner image",
-    href: `${repo}/actions/runs/41658304086`,
+    href: `${repo}/actions/runs/41780673745`,
   },
   {
     label: "Vulnerability-fix checks",
@@ -29,7 +29,7 @@ export const SCORECARD: ScoreItem[] = [
     detail:
       "On a SQL injection scenario: the real fix is VERIFIED; filtering the reported attack strings (caught by attacks the model never sees), answering attacks with a 500, breaking LIKE wildcards and changing nothing are all REJECTED.",
     source: "CI · Harness suite, sqli-search",
-    href: `${repo}/blob/claude/busy-cannon-5b5n40/docs/vulnerability-fix.md`,
+    href: `${repo}/actions/runs/41780673745`,
   },
   {
     label: "Mutants caught",
