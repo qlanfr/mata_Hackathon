@@ -3,8 +3,9 @@
 
     pick-verified.py <aiops binary> <run_id>     that run (fails if it has no VERIFIED trial)
     pick-verified.py <aiops binary> latest       the newest run with a VERIFIED trial
-    pick-verified.py <aiops binary> scheduled    the newest scheduled run started today (UTC),
-                                                 if it reached VERIFIED
+    pick-verified.py <aiops binary> scheduled    the newest scheduled run of the last 26 hours, if
+                                                 it reached VERIFIED (26 hours: GitHub can start the
+                                                 nightly workflow hours late, past UTC midnight)
 
 Uses the read-only `aiops` commands, so no token is needed.
 """
@@ -33,20 +34,26 @@ def main():
             sys.exit(f"run {which} has no VERIFIED trial")
         print(which, trial)
         return
-    today = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    start_ms = int(today.timestamp() * 1000)
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=26)
+    start_ms = int(since.timestamp() * 1000)
     for run in aiops(binary, "runs", "--limit", "50"):
-        if run.get("state") != "COMPLETED":
-            continue
         if which == "scheduled":
             if (run.get("trigger") or {}).get("kind") != "schedule" or run.get("created_at", 0) < start_ms:
                 continue
+            # The newest scheduled run decides, whatever its state; say what it was.
+            print(f"newest scheduled run: {run['id']} {run.get('state')}", file=sys.stderr)
+            trial = verified_trial(binary, run["id"]) if run.get("state") == "COMPLETED" else None
+            if trial:
+                print(run["id"], trial)
+            return
+        if run.get("state") != "COMPLETED":
+            continue
         trial = verified_trial(binary, run["id"])
         if trial:
             print(run["id"], trial)
             return
-        if which == "scheduled":
-            return
+    if which == "scheduled":
+        print("no scheduled run in the last 26 hours", file=sys.stderr)
 
 
 if __name__ == "__main__":

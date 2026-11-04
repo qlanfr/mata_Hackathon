@@ -68,6 +68,7 @@ jobs:
             *) which=$(grep -v '^\s*#' .github/pr-request | grep -v '^\s*$' | tail -1); open=false ;;
           esac
           for _ in $(seq 30); do ./target/release/aiops info && break; sleep 10; done
+          ./target/release/aiops runs --limit 8 || true
           picked=$(python3 scripts/pick-verified.py ./target/release/aiops "$which")
           if [ -z "$picked" ]; then
             echo "No VERIFIED run for \`$which\`; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
