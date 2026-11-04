@@ -23,3 +23,4 @@
 2026-11-04T05:16 deploy: wake aiopsd for the scheduled run (verification with the schedule at 05:50 UTC)
 2026-11-04T06:00 deploy: database role, freeze, wider gate, injection screen, weekly hunt; schedule back to 17:00 UTC
 2026-11-04T06:47 deploy: scorecard 23/23 + 5/5 and the security docs
+2026-11-04T09:57 deploy: Discord notifications (NOTIFY_WEBHOOK_URL) and the 2,000-character cap
