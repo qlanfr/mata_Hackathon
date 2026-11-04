@@ -87,6 +87,7 @@ On the deployment:
 | --- | --- | --- |
 | Settings deployed | [Deploy edge run 41654525427](https://github.com/qlanfr/mata_Hackathon/actions/runs/41654525427): migration 0004 applied, check run with `muse-spark-1.3` | COMPLETED, VERIFIED 88.3% (A/A 6.7%) |
 | Settings live | `aiops info` against the deployment ([PR workflow run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685)) | `schedule 17:00 UTC  daily runs 30  daily tokens 1500000  noise retries 3 every 20 min  notifications off` |
+| Discord notification | [Deploy edge run 41811023539](https://github.com/qlanfr/mata_Hackathon/actions/runs/41811023539): `NOTIFY_WEBHOOK_URL` set to a Discord webhook, check run with `muse-spark-1.3` | run COMPLETED (VERIFIED 90.9%, after one immediate re-measurement for a baseline spread of 18.5%); event `notified` with HTTP 204 from Discord |
 | PR workflow, dry run | [run 41664635685](https://github.com/qlanfr/mata_Hackathon/actions/runs/41664635685) | picked the newest VERIFIED run (`01a1a1fe`, the deploy's check run), applied its patch, wrote the description (p95 31.4 → 3.3 ms, SQL 81.8 → 3.0, pairs 89.0 / 89.2 / 89.8%, golden 14/14), built the patched service, uploaded diff and description |
 
 The first scheduled run on the deployment did not start (17:00 UTC on 3 November). The cron woke aiopsd only while a run was unfinished, and aiopsd had gone to sleep. The cron now also wakes it from the scheduled minute until the day's scheduled run exists, for at most an hour.
@@ -95,5 +96,4 @@ To check the fix, the schedule was set to 05:50 UTC and deployed. Run `01a1a51b`
 
 Not yet seen on the deployment:
 - a retry after noise;
-- a notification: no webhook secret is set;
 - an opened pull request: the workflow ran as a dry run.
