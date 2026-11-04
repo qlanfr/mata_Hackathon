@@ -87,7 +87,28 @@ pub async fn apply(
     }))
 }
 
+/// Model-written text for the Markdown description: inside a fenced block, so it cannot add
+/// links, images, mentions or HTML. The fence is longer than any run of backticks in the text, so
+/// the text cannot close it.
+fn fenced(text: &str) -> String {
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}text\n{}\n{fence}", text.trim())
+}
+
 fn first_line(s: &str, max: usize) -> String {
+    // Titles are plain text, but keep them free of control characters and of zero-width and
+    // bidirectional characters that would make a title read differently from what it says.
+    let hidden = |c: char| {
+        matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+        )
+    };
+    let s: String = s
+        .chars()
+        .filter(|c| *c == '\n' || !(c.is_control() || hidden(*c)))
+        .collect();
     let line = s.lines().next().unwrap_or_default().trim();
     if line.chars().count() <= max {
         line.to_owned()
@@ -124,13 +145,14 @@ fn pr_body(
         .map(|a| a.iter().map(pct).collect::<Vec<_>>().join(" / "))
         .unwrap_or_else(|| "-".into());
     let mut out = String::new();
+    out.push_str("This change was proposed by a model and **VERIFIED by the Rust harness**: built in an isolated runner, checked against the original service's responses, and then measured against the unchanged service (performance) or attacked (vulnerability fix). The model did not judge its own patch.\n\n");
     out.push_str(&format!(
-        "{}\n\nThis change was proposed by a model and **VERIFIED by the Rust harness**: built in an isolated runner, checked against the original service's responses, and then measured against the unchanged service (performance) or attacked (vulnerability fix). The model did not judge its own patch.\n\n",
-        patch.summary.trim()
-    ));
-    out.push_str(&format!(
-        "**Hypothesis:** {}\n\n",
-        s["hypothesis"].as_str().unwrap_or("-")
+        "The model's summary and hypothesis, as it wrote them (not verified; shown as plain text):\n\n{}\n\n",
+        fenced(&format!(
+            "{}\n\nHypothesis: {}",
+            patch.summary.trim(),
+            s["hypothesis"].as_str().unwrap_or("-")
+        ))
     ));
     let a = &m["attacks"];
     if a.is_object() {
@@ -182,4 +204,19 @@ fn pr_body(
     }
     out.push_str("\n> The harness checks behaviour on the scenario's data and load; it is not a code review. Review before merging.\n");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_text_cannot_escape_its_block() {
+        let evil =
+            "fix ``` [click](https://evil.example) ![x](https://evil.example/p.png) @everyone";
+        let f = fenced(evil);
+        assert!(f.starts_with("````text\n"), "{f}");
+        assert!(f.ends_with("\n````"), "{f}");
+        assert_eq!(first_line("a\u{202E}b\nsecond", 72), "ab");
+    }
 }

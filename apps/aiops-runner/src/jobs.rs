@@ -222,17 +222,41 @@ struct Measure<'a> {
 }
 
 /// Runs `first` then `second` with the same plan, returning stats in that order.
+/// Keeps a service stopped (SIGSTOP) while it lives; resumes it when dropped, also on errors.
+struct Frozen<'a>(&'a Service);
+
+impl<'a> Frozen<'a> {
+    fn new(service: &'a Service) -> Self {
+        service.pause();
+        Self(service)
+    }
+}
+
+impl Drop for Frozen<'_> {
+    fn drop(&mut self) {
+        self.0.resume();
+    }
+}
+
+/// Measures `first`, then `second`. While one is measured the other is frozen, so a candidate
+/// cannot burn CPU or hold resources to slow the baseline down while it waits its turn.
 async fn measure_pair(
     rt: &Runtime,
     ctl: &JobControl,
     dir: &Path,
     index: u32,
-    first: (&str, &str),
-    second: (&str, &str),
+    first: &Service,
+    second: &Service,
     m: &mut Measure<'_>,
 ) -> anyhow::Result<(LoadStats, LoadStats)> {
-    let a = measure_one(rt, ctl, dir, index, first, m).await?;
-    let b = measure_one(rt, ctl, dir, index, second, m).await?;
+    let a = {
+        let _idle = Frozen::new(second);
+        measure_one(rt, ctl, dir, index, (&first.label, &first.base_url), m).await?
+    };
+    let b = {
+        let _idle = Frozen::new(first);
+        measure_one(rt, ctl, dir, index, (&second.label, &second.base_url), m).await?
+    };
     Ok((a, b))
 }
 
@@ -397,27 +421,9 @@ async fn baseline_inner(
         ctl.check()?;
         ctl.set_phase(&format!("measure {}/{}", index + 1, rt.spec.contract.pairs));
         let (sa, sb) = if index.is_multiple_of(2) {
-            measure_pair(
-                rt,
-                ctl,
-                &dir,
-                index,
-                ("baseline", &a.base_url),
-                ("baseline-b", &b.base_url),
-                &mut m,
-            )
-            .await?
+            measure_pair(rt, ctl, &dir, index, &a, &b, &mut m).await?
         } else {
-            let (sb, sa) = measure_pair(
-                rt,
-                ctl,
-                &dir,
-                index,
-                ("baseline-b", &b.base_url),
-                ("baseline", &a.base_url),
-                &mut m,
-            )
-            .await?;
+            let (sb, sa) = measure_pair(rt, ctl, &dir, index, &b, &a, &mut m).await?;
             (sa, sb)
         };
         report.aa_pairs.push(Pair {
@@ -642,27 +648,9 @@ async fn trial_inner(
             ctl.check()?;
             ctl.set_phase(&format!("measure {}/{}", index + 1, rt.spec.contract.pairs));
             let (b, c) = if index.is_multiple_of(2) {
-                measure_pair(
-                    rt,
-                    ctl,
-                    dir,
-                    index,
-                    ("baseline", &base.base_url),
-                    ("candidate", &cand.base_url),
-                    &mut m,
-                )
-                .await?
+                measure_pair(rt, ctl, dir, index, &base, &cand, &mut m).await?
             } else {
-                let (c, b) = measure_pair(
-                    rt,
-                    ctl,
-                    dir,
-                    index,
-                    ("candidate", &cand.base_url),
-                    ("baseline", &base.base_url),
-                    &mut m,
-                )
-                .await?;
+                let (c, b) = measure_pair(rt, ctl, dir, index, &cand, &base, &mut m).await?;
                 (b, c)
             };
             report.pairs.push(Pair {

@@ -1,143 +1,173 @@
 [
-  {
-    "file": "known-good-batched-join.json",
-    "expect": "VERIFIED",
-    "reason": "all 3 pairs improved",
-    "tolerate": [
-      "INCONCLUSIVE"
-    ],
-    "gate": "improvement"
-  },
-  {
-    "file": "known-bad-drops-items.json",
-    "expect": "REJECTED",
-    "reason": "golden cases failed",
-    "tolerate": [],
-    "gate": "correctness"
-  },
-  {
-    "file": "known-policy-violation.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "patch refused",
-    "tolerate": [],
-    "gate": "policy"
-  },
-  {
-    "file": "trap-items-in-product-order.json",
-    "expect": "REJECTED",
-    "reason": "golden cases failed",
-    "tolerate": [],
-    "gate": "correctness"
-  },
-  {
-    "file": "trap-page-shifted.json",
-    "expect": "REJECTED",
-    "reason": "golden cases failed",
-    "tolerate": [],
-    "gate": "correctness"
-  },
-  {
-    "file": "trap-other-users-orders.json",
-    "expect": "REJECTED",
-    "reason": "golden cases failed",
-    "tolerate": [],
-    "gate": "correctness"
-  },
-  {
-    "file": "trap-totals-rounded.json",
-    "expect": "REJECTED",
-    "reason": "golden cases failed",
-    "tolerate": [],
-    "gate": "correctness"
-  },
-  {
-    "file": "trap-skips-user-check.json",
-    "expect": "REJECTED",
-    "reason": "golden cases failed",
-    "tolerate": [],
-    "gate": "correctness"
-  },
-  {
-    "file": "trap-edits-tracker.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "patch refused",
-    "tolerate": [],
-    "gate": "policy"
-  },
-  {
-    "file": "trap-edits-golden-answers.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "patch refused",
-    "tolerate": [],
-    "gate": "policy"
-  },
-  {
-    "file": "trap-no-measurable-effect.json",
-    "expect": "REJECTED",
-    "reason": "below the 20.0% target|candidate is slower",
-    "tolerate": [
-      "INCONCLUSIVE"
-    ],
-    "gate": "improvement"
-  },
-  {
-    "file": "trap-slower.json",
-    "expect": "REJECTED",
-    "reason": "candidate is slower|could not keep up",
-    "tolerate": [
-      "INCONCLUSIVE"
-    ],
-    "gate": "improvement"
-  },
-  {
-    "file": "trap-crashes-on-last-product.json",
-    "expect": "REJECTED",
-    "reason": "sampled requests",
-    "tolerate": [],
-    "gate": "sample"
-  },
-  {
-    "file": "trap-race-under-load.json",
-    "expect": "REJECTED",
-    "reason": "candidate error rate",
-    "tolerate": [
-      "INCONCLUSIVE"
-    ],
-    "gate": "errors"
-  },
-  {
-    "file": "trap-does-not-compile.json",
-    "expect": "EXECUTION_ERROR",
-    "reason": "candidate build failed",
-    "tolerate": [],
-    "gate": "build"
-  },
-  {
-    "file": "trap-sql-built-with-format.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "security gate",
-    "tolerate": [],
-    "gate": "security"
-  },
-  {
-    "file": "trap-unsafe-code.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "security gate",
-    "tolerate": [],
-    "gate": "security"
-  },
-  {
-    "file": "trap-reads-secrets.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "security gate",
-    "tolerate": [],
-    "gate": "security"
-  },
-  {
-    "file": "trap-network-call.json",
-    "expect": "POLICY_REJECTED",
-    "reason": "security gate",
-    "tolerate": [],
-    "gate": "security"
-  }
+ {
+  "file": "known-good-batched-join.json",
+  "expect": "VERIFIED",
+  "reason": "all 3 pairs improved",
+  "tolerate": [
+   "INCONCLUSIVE"
+  ],
+  "gate": "improvement"
+ },
+ {
+  "file": "known-bad-drops-items.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "known-policy-violation.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "patch refused",
+  "tolerate": [],
+  "gate": "policy"
+ },
+ {
+  "file": "trap-items-in-product-order.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "trap-page-shifted.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "trap-other-users-orders.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "trap-totals-rounded.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "trap-skips-user-check.json",
+  "expect": "REJECTED",
+  "reason": "golden cases failed",
+  "tolerate": [],
+  "gate": "correctness"
+ },
+ {
+  "file": "trap-edits-tracker.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "patch refused",
+  "tolerate": [],
+  "gate": "policy"
+ },
+ {
+  "file": "trap-edits-golden-answers.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "patch refused",
+  "tolerate": [],
+  "gate": "policy"
+ },
+ {
+  "file": "trap-no-measurable-effect.json",
+  "expect": "REJECTED",
+  "reason": "below the 20.0% target|candidate is slower",
+  "tolerate": [
+   "INCONCLUSIVE"
+  ],
+  "gate": "improvement"
+ },
+ {
+  "file": "trap-slower.json",
+  "expect": "REJECTED",
+  "reason": "candidate is slower|could not keep up",
+  "tolerate": [
+   "INCONCLUSIVE"
+  ],
+  "gate": "improvement"
+ },
+ {
+  "file": "trap-crashes-on-last-product.json",
+  "expect": "REJECTED",
+  "reason": "sampled requests",
+  "tolerate": [],
+  "gate": "sample"
+ },
+ {
+  "file": "trap-race-under-load.json",
+  "expect": "REJECTED",
+  "reason": "candidate error rate",
+  "tolerate": [
+   "INCONCLUSIVE"
+  ],
+  "gate": "errors"
+ },
+ {
+  "file": "trap-does-not-compile.json",
+  "expect": "EXECUTION_ERROR",
+  "reason": "candidate build failed",
+  "tolerate": [],
+  "gate": "build"
+ },
+ {
+  "file": "trap-sql-built-with-format.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-unsafe-code.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-reads-secrets.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-network-call.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-burns-cpu-while-idle.json",
+  "expect": "REJECTED",
+  "reason": "below the 20.0% target|candidate is slower|could not keep up",
+  "tolerate": [
+   "INCONCLUSIVE"
+  ],
+  "gate": "isolation"
+ },
+ {
+  "file": "trap-copy-to-program.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-locks-table.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ },
+ {
+  "file": "trap-reads-golden-at-compile-time.json",
+  "expect": "POLICY_REJECTED",
+  "reason": "security gate",
+  "tolerate": [],
+  "gate": "security"
+ }
 ]

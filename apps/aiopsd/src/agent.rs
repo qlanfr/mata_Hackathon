@@ -207,6 +207,23 @@ pub async fn run_role<T: Structured>(
                 } else {
                     tools::execute(tools_ctx, role, &name, &arguments).await
                 };
+                // Tool output is untrusted data. Instruction-like text in it is recorded and the
+                // model is told so; it never gets authority either way.
+                let findings = crate::injection::scan(&result.to_string());
+                if !findings.is_empty() {
+                    let _ = events::append(
+                        db,
+                        run_id,
+                        "suspicious_input",
+                        json!({
+                            "role": role.as_str(), "tool": name,
+                            "patterns": findings.iter().map(|f| f.pattern.clone()).collect::<Vec<_>>(),
+                            "excerpt": findings[0].excerpt,
+                        }),
+                    )
+                    .await;
+                }
+                let result = crate::injection::wrap(result, &findings);
                 let mut output = result.to_string();
                 if output.len() > MAX_TOOL_OUTPUT {
                     let cut = output

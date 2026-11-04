@@ -6,6 +6,7 @@ mod api;
 mod artifacts;
 mod db;
 mod events;
+mod injection;
 mod lease;
 mod llm;
 mod ops;

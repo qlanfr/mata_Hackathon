@@ -20,6 +20,8 @@ cargo_args = ["--features", "postgresql"]
 build_env = { RUSTUP_TOOLCHAIN = "1.60.0", CARGO_PROFILE_RELEASE_LTO = "false" }
 
 [database]
+# Vaultwarden writes on login (devices, tokens): its role may write, but is still not a superuser.
+service_writes = true
 name = "vaultwarden"
 schema = "scenarios/vaultwarden-sync/schema.sql"
 seed = "external/vaultwarden-seed.sql"

@@ -89,8 +89,19 @@ impl Service {
         }
     }
 
+    /// Stops the whole process group (SIGSTOP) until `resume`: a service that is not being
+    /// measured gets no CPU, so it cannot slow down the one that is.
+    pub fn pause(&self) {
+        proc::signal_group(self.pid, libc::SIGSTOP);
+    }
+
+    pub fn resume(&self) {
+        proc::signal_group(self.pid, libc::SIGCONT);
+    }
+
     /// SIGTERM, a short grace period, then SIGKILL for the whole process group.
     pub async fn stop(mut self) {
+        self.resume();
         proc::signal_group(self.pid, libc::SIGTERM);
         if tokio::time::timeout(Duration::from_secs(3), self.child.wait())
             .await

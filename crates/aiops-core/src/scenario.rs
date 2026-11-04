@@ -92,6 +92,11 @@ pub struct DatabaseSpec {
     /// their own per-request SQL counts. Also records the most frequent statements as evidence.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub statement_stats: bool,
+    /// Let the service write (INSERT, UPDATE, DELETE and sequences) as well as read. Services
+    /// always connect as a role that is not a superuser and owns nothing; by default it may only
+    /// read the scenario's tables.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub service_writes: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

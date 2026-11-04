@@ -11,6 +11,12 @@ use tokio_util::sync::CancellationToken;
 use crate::config::Runtime;
 use crate::proc::run_checked;
 
+/// The role the service under test connects as. Not a superuser and the owner of nothing, so a
+/// patch cannot run shell commands through SQL (`COPY ... TO PROGRAM`), read server files, change
+/// settings, or take locks that stall the other service; statements, lock waits and idle
+/// transactions are cut off. By default it may only read the scenario's tables.
+pub const SERVICE_ROLE: &str = "aiops_svc";
+
 pub struct Postgres {
     bin: PathBuf,
     root: PathBuf,
@@ -28,8 +34,41 @@ impl Postgres {
         }
     }
 
+    /// Where the service under test connects: as the service role, never as the superuser.
     pub fn url(&self, database: &str) -> String {
-        format!("postgres://aiops@127.0.0.1:{}/{database}", self.port)
+        format!(
+            "postgres://{SERVICE_ROLE}@127.0.0.1:{}/{database}",
+            self.port
+        )
+    }
+
+    /// Creates or resets the service role for `database`. Run on every job, so the grants always
+    /// match the scenario and nothing a candidate did can carry over.
+    async fn ensure_service_role(&self, database: &str, writes: bool) -> anyhow::Result<()> {
+        let grants = if writes {
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO aiops_svc; \
+             GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO aiops_svc;"
+        } else {
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO aiops_svc;"
+        };
+        let sql = format!(
+            "DO $$ BEGIN \
+               IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aiops_svc') THEN \
+                 CREATE ROLE aiops_svc LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; \
+               END IF; END $$; \
+             ALTER ROLE aiops_svc NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; \
+             ALTER ROLE aiops_svc SET statement_timeout = '10s'; \
+             ALTER ROLE aiops_svc SET lock_timeout = '2s'; \
+             ALTER ROLE aiops_svc SET idle_in_transaction_session_timeout = '10s'; \
+             REVOKE CREATE ON SCHEMA public FROM PUBLIC; \
+             REVOKE ALL ON ALL TABLES IN SCHEMA public FROM aiops_svc; \
+             REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM aiops_svc; \
+             GRANT USAGE ON SCHEMA public TO aiops_svc; {grants}"
+        );
+        self.query(database, &sql)
+            .await
+            .context("cannot set up the service role")?;
+        Ok(())
     }
 
     /// Starts the server if needed and makes sure the scenario database holds the current seed.
@@ -52,6 +91,8 @@ impl Postgres {
             ours.display()
         );
         self.ensure_seeded(rt, cancel).await?;
+        self.ensure_service_role(&rt.spec.database.name, rt.spec.database.service_writes)
+            .await?;
         if stats {
             self.query(
                 "postgres",

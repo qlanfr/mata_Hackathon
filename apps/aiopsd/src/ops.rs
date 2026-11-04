@@ -98,13 +98,19 @@ pub fn day_start(now_ms: u64) -> u64 {
 }
 
 /// Slack and Discord webhooks take their own shapes; everything else gets the JSON event.
+/// The text carries the model's own words (the run summary). Slack and Discord bodies therefore
+/// escape what would become a mention, a link or markup: `<!channel>`, `<url|label>`, `@everyone`.
 pub fn webhook_body(url: &str, text: &str, event: &Value) -> Value {
     if url.contains("hooks.slack.com") {
+        let text = text
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
         json!({ "text": text })
     } else if url.contains("discord.com/api/webhooks")
         || url.contains("discordapp.com/api/webhooks")
     {
-        json!({ "content": text })
+        json!({ "content": text, "allowed_mentions": { "parse": [] } })
     } else {
         event.clone()
     }
@@ -320,7 +326,15 @@ mod tests {
         );
         assert_eq!(
             webhook_body("https://discord.com/api/webhooks/1/x", "hi", &event),
-            json!({ "content": "hi" })
+            json!({ "content": "hi", "allowed_mentions": { "parse": [] } })
+        );
+        assert_eq!(
+            webhook_body(
+                "https://hooks.slack.com/services/x",
+                "<!channel> <https://evil|ok>",
+                &event
+            ),
+            json!({ "text": "&lt;!channel&gt; &lt;https://evil|ok&gt;" })
         );
         assert_eq!(
             webhook_body("https://example.com/hook", "hi", &event),

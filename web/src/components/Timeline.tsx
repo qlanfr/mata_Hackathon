@@ -162,6 +162,14 @@ function render(e: RunEvent): Rendered | null {
         title: `Machine too noisy to judge: measuring again at ${clock(p.retry_at)} (retry ${p.attempt} of ${p.of})`,
         detail: p.reason,
       };
+    case "suspicious_input":
+      return {
+        actor: "model",
+        tone: "problem",
+        who: "injection screen",
+        title: `Instruction-like text in ${p.tool} output; the model was told it is data`,
+        detail: `${(p.patterns ?? []).join(" · ")} — “${String(p.excerpt ?? "").slice(0, 140)}”`,
+      };
     case "notified":
       return { actor: "control", who: "notification", title: `Webhook told: run ${String(p.state).toLowerCase()}`, detail: `HTTP ${p.status}`, compact: true };
     case "notify_failed":
