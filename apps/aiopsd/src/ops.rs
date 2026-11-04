@@ -128,6 +128,21 @@ pub fn day_start(now_ms: u64) -> u64 {
     now_ms - now_ms % DAY_MS
 }
 
+/// Longest summary a notification text carries, so that the text stays within Discord's
+/// 2,000-character limit together with the headline and the link.
+const NOTIFY_SUMMARY_CHARS: usize = 1500;
+/// Discord refuses a message longer than this.
+const DISCORD_MAX_CHARS: usize = 2000;
+
+fn clip(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_owned()
+    } else {
+        let cut: String = text.chars().take(max - 1).collect();
+        format!("{cut}…")
+    }
+}
+
 /// Slack and Discord webhooks take their own shapes; everything else gets the JSON event.
 /// The text carries the model's own words (the run summary). Slack and Discord bodies therefore
 /// escape what would become a mention, a link or markup: `<!channel>`, `<url|label>`, `@everyone`.
@@ -141,7 +156,7 @@ pub fn webhook_body(url: &str, text: &str, event: &Value) -> Value {
     } else if url.contains("discord.com/api/webhooks")
         || url.contains("discordapp.com/api/webhooks")
     {
-        json!({ "content": text, "allowed_mentions": { "parse": [] } })
+        json!({ "content": clip(text, DISCORD_MAX_CHARS), "allowed_mentions": { "parse": [] } })
     } else {
         event.clone()
     }
@@ -354,7 +369,11 @@ impl App {
             ("CANCELLED", _) => "cancelled".to_owned(),
             (other, _) => other.to_lowercase(),
         };
-        let mut text = format!("[{}] run {run_id}: {headline}. {summary}", self.spec.id);
+        let mut text = format!(
+            "[{}] run {run_id}: {headline}. {}",
+            self.spec.id,
+            clip(&summary, NOTIFY_SUMMARY_CHARS)
+        );
         if let Some(url) = &url {
             text.push_str(&format!(" {url}"));
         }
@@ -423,6 +442,12 @@ mod tests {
             webhook_body("https://example.com/hook", "hi", &event),
             event
         );
+        // Discord refuses more than 2,000 characters.
+        let long = "가".repeat(2500);
+        let body = webhook_body("https://discord.com/api/webhooks/1/x", &long, &event);
+        let content = body["content"].as_str().unwrap();
+        assert_eq!(content.chars().count(), 2000);
+        assert!(content.ends_with('…'));
     }
 
     #[test]
