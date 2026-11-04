@@ -1,6 +1,6 @@
 # Submission text
 
-Ready to paste. Every number comes from a run on the deployed system or a CI run linked in the README. Trim from the bottom if the form has a length limit.
+Ready to paste. Every number comes from a run on the deployed system or a CI run linked in the README. Trim from the bottom if the form has a length limit. A Korean translation is in [submission-text.ko.md](submission-text.ko.md).
 
 ---
 
@@ -39,14 +39,48 @@ We also ran the loop on a documented bug in a real open-source Rust project: Vau
 
 ## How we know the harness is not a rubber stamp
 
-- 19 hand-written trap patches, each built to fail exactly one gate:
+- 23 hand-written trap patches, each built to fail exactly one gate:
   - wrong item order, leaked orders, rounded totals;
   - edited golden answers, slower code, a crash on one product, a race under load, a build error;
-  - four that add dangerous code, which the security gate refuses.
+  - seven that add dangerous code, which the security gate refuses, among them a shell command run through SQL and a golden answer compiled into the binary;
+  - one that keeps the slow code and secretly slows down the baseline (see Security).
 
-  All 19 got the expected verdict for the expected reason in CI.
+  All 23 got the expected verdict for the expected reason in CI.
 - 36 rule-generated mutants of the handler: the correctness gates caught 30. Of the rest, 4 cannot change any response and 2 give identical results on this data.
-- Building the traps and mutants exposed real gaps in our own harness, including golden cases that let a wrong item order pass and a build-cache bug that silently measured the original binary. All are fixed and recorded.
+- Building the traps and mutants exposed real gaps in our own harness, including golden cases that let a wrong item order pass, a build-cache bug that silently measured the original binary, and a way to fake an improvement by slowing the baseline. All are fixed and recorded.
+
+## Security: the model and its code are untrusted
+
+The model only proposes. It has no tool that changes anything, no network access and no secrets. Every patch it writes passes layers that do not trust it:
+
+- **Security gate.** Before anything is built, a patch is refused if it adds any of the following:
+  - `unsafe`, `libc` or `asm!`;
+  - a process, a network call, a secret read, or a file read or write;
+  - a file compiled into the binary (`include_str!`);
+  - SQL built from strings, or administrative SQL (`COPY ... PROGRAM`, `LOCK`, `pg_sleep`, `ALTER`, `GRANT`);
+  - an edit to auth or crypto files.
+- **Sandbox.** The patch builds and runs in a container with no internet and no secrets, as a non-root user. The scenario and golden answers are read-only.
+- **Least-privilege database.** The service under test connects as a read-only role, not as the database superuser. We tried 10 privileged or long-running statements as that role:
+  - 9 were denied: shell commands through `COPY ... TO PROGRAM`, table locks, writes, file reads, configuration changes and more;
+  - a long sleep was cut off at 10 s.
+- **Measurement isolation.** While one service is measured, the other is frozen.
+
+Reviewing our own harness found two real holes. Both are now closed and measured:
+- **Shell commands through SQL.** The service ran as the database superuser, so one static SQL string in a patch could run a shell command. The gate only looked for SQL built with `format!`.
+- **A faked improvement.** A candidate could slow the baseline down to make itself look faster.
+  - Our trap patch keeps the slow code and burns CPU only while idle. It measured 45-67% "faster" with no real change. The harness called it INCONCLUSIVE only because the baseline spread too much.
+  - With the idle service frozen, the same trap measured 0.4 / -1.5 / -0.6% in CI and was REJECTED.
+
+**Prompt injection.** Anything the model reads can carry text written to steer it: a code comment, a request URI in the logs, a value in the database.
+- **Screening.** Every tool output is checked for instruction-like phrases and for hidden zero-width or bidirectional characters, also after URL decoding.
+- **Marking.** A hit is recorded on the timeline, and the model gets the output marked as data.
+- **Model text in outputs.** Text the model wrote goes into pull request descriptions inside a code block it cannot close.
+- **Red team** (GitHub-hosted runner). Instructions were planted in the source, the request log and hidden characters. Three Meta runs, Muse Spark 1.3 twice and Wonder 1.0 once:
+  - the screen flagged 4, 4 and 3 tool outputs;
+  - no patch carried any planted code;
+  - all three were VERIFIED at 85-89%.
+
+  The models did not follow the injections. So this shows that the screen sees them, not that the gate stops a model that obeys one. The trap patches test the gate against the code an injection asks for.
 
 ## Beyond performance
 
@@ -55,11 +89,15 @@ We also ran the loop on a documented bug in a real open-source Rust project: Vau
   - a process, a network call, a secret read or a file write;
   - an edit to auth or crypto files.
 - **Vulnerability fixes.** The model fixes a reported vulnerability. The harness accepts the fix only if every attack request worked on the original and fails on the fix, and every golden response is unchanged. The attacks include held-out variants the model never sees, so filtering the reported strings fails.
-  - On a SQL injection in product search, 5 of 5 Meta runs were VERIFIED on the first candidate: 3 with Muse Spark 1.3 and 2 with Wonder 1.0.
+  - On a SQL injection we planted in product search, 5 of 5 Meta runs were VERIFIED on the first candidate: 3 with Muse Spark 1.3 and 2 with Wonder 1.0.
   - Every one bound the query as a parameter: 4 of 4 attacks blocked, golden 12/12.
   - Five hand-written fixes, the shortcuts among them, got the expected verdicts in CI.
+- **Weekly vulnerability hunt.** Once a week, or on demand, the model reads the code and names up to five suspected vulnerabilities. Each comes with an attack request, a harmless control request, and the evidence the attack should return.
+  - The runner sends them to the unchanged service in the sandbox.
+  - Rules, not the model, judge each one REPRODUCED, SERVER_ERROR or NOT_REPRODUCED.
+  - The first hunt on the deployment (Muse Spark 1.3, 92 s) pointed at the right place: the SQL injection we planted in product search. But its attack did not return the evidence it named, so the verdict was NOT_REPRODUCED. A claim alone is not accepted.
 - **Unattended operation.** The deployment can run on its own:
-  - a daily scheduled run;
+  - a daily scheduled run and the weekly hunt;
   - a noisy measurement is retried later instead of failing;
   - daily caps on runs and model tokens;
   - Slack, Discord or webhook notifications;
@@ -69,9 +107,14 @@ We also ran the loop on a documented bug in a real open-source Rust project: Vau
 
 Both scenarios are N+1 problems, one hand-written and one real. What the project contributes is the loop around the model: the gates know nothing about N+1 and judge any patch the same way, but other kinds of performance problems have not been tried. The runner targets Rust HTTP services on PostgreSQL; adding one is a scenario file, a seed and a load script, as the Vaultwarden scenario shows. The real-bug seed has no organizations or attachments, so those branches of the model's patch were not exercised.
 
+On security:
+- The gate is lexical: it catches what a performance patch has no reason to contain, not every way to write it. The sandbox, the database role and the freeze do not depend on spelling.
+- The injection screen is a heuristic.
+- Hunts send GET requests only, and one hunt is one data point. REPRODUCED would mean the claimed behaviour happened, not a judgement that it is a vulnerability.
+
 ## What's next
 
-Choose the scenario per run so the real-bug scenario can run on the deployment, try other kinds of performance problems, open a pull request with the evidence when a patch is VERIFIED, and generate golden cases from recorded production traffic.
+Choose the scenario per run so the real-bug scenario can run on the deployment, try other kinds of performance problems, let hunts send more than GET requests, test the gate with a model that does follow an injection, and generate golden cases from recorded production traffic.
 
 ## Built with
 

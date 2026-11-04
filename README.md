@@ -205,6 +205,6 @@ Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back record
 - [docs/security.md](docs/security.md): how the model and its code are contained, the holes found and closed, prompt injection, the weekly hunt
 - [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
 - [docs/real-bug-probe.md](docs/real-bug-probe.md): the loop on a real bug (Vaultwarden #1402): reproduction, every run, and the harness changes it led to
-- [docs/submission-text.md](docs/submission-text.md): project description for the submission
+- [docs/submission-text.md](docs/submission-text.md): project description for the submission ([Korean](docs/submission-text.ko.md))
 - [docs/plan.md](docs/plan.md) (Korean): plan, daily log, every measured run and every bug found
 - [docs/mutation-results.md](docs/mutation-results.md): mutation testing results

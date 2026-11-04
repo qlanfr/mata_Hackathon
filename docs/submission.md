@@ -13,7 +13,7 @@
 
 ## 제출 설명에 쓸 수 있는 사실 (측정됨)
 
-영어 제출 설명문 초안은 [submission-text.md](submission-text.md)에 있습니다. 아래 사실만으로 썼습니다.
+영어 제출 설명문 초안은 [submission-text.md](submission-text.md), 한국어 번역은 [submission-text.ko.md](submission-text.ko.md)에 있습니다. 아래 사실과 [security.md](security.md)의 측정만으로 썼습니다.
 
 ### Meta 모델로 돌린 배포본 run (가장 중요)
 
