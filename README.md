@@ -108,6 +108,16 @@ A harness that says VERIFIED to everything would also produce the numbers above.
 
   On a SQL injection in product search, 5 of 5 runs were VERIFIED on the first candidate: 3 with `muse-spark-1.3` and 2 with `muse-wonder-1.0`. Every fix bound the query as a parameter, blocked 4 of 4 attacks, and kept golden at 12/12. It is a textbook case, and no model tried the shortcut the held-out attacks exist to catch. See [docs/vulnerability-fix.md](docs/vulnerability-fix.md).
 
+### Hardening, prompt injection and the weekly hunt
+
+- **Hardening.** The service under test connects to PostgreSQL as a non-superuser read-only role, so SQL cannot run shell commands or take locks. The service not being measured is frozen, so a candidate cannot slow the baseline down to fake an improvement:
+  - before the freeze, a sabotage trap measured 45-67% "faster" with unchanged code;
+  - after it, 0.4 / -1.5 / -0.6%, REJECTED.
+- **Prompt injection.** Tool output is screened for instructions and hidden characters, flagged on the timeline, and marked as data for the model. In a red-team scenario with injections in the code, the logs and hidden characters, three Meta runs all flagged them and all wrote an ordinary fix (VERIFIED). None followed the planted instructions.
+- **Weekly vulnerability hunt.** The model reads the code and names suspects with an attack request each; the harness sends them to the unchanged service in the sandbox and says which reproduced. The first hunt on the deployment named the right function but did not prove it, so the verdict was NOT_REPRODUCED.
+
+Details and every measurement: [docs/security.md](docs/security.md).
+
 ## Use it from a terminal or an AI agent
 
 `aiops` is a Rust CLI and MCP server for the same API. A person, a CI job or a monitoring webhook can start an experiment and get the verdict as an exit code; an AI client such as Claude Code or Cursor can do it with tool calls (`start_experiment`, `wait_for_run`, `get_trial`).
@@ -192,6 +202,7 @@ Without `META_API_KEY`, aiopsd uses the Replay provider, which plays back record
 - [docs/cli-and-mcp.md](docs/cli-and-mcp.md): the `aiops` command line and MCP server
 - [docs/operations.md](docs/operations.md): running unattended: schedule, retries on noise, daily limits, notifications, pull requests
 - [docs/vulnerability-fix.md](docs/vulnerability-fix.md): vulnerability-fix mode: attacks, held-out variants, the SQL injection scenario and its runs
+- [docs/security.md](docs/security.md): how the model and its code are contained, the holes found and closed, prompt injection, the weekly hunt
 - [docs/adding-a-service.md](docs/adding-a-service.md): what it takes to point the harness at another service
 - [docs/real-bug-probe.md](docs/real-bug-probe.md): the loop on a real bug (Vaultwarden #1402): reproduction, every run, and the harness changes it led to
 - [docs/submission-text.md](docs/submission-text.md): project description for the submission
