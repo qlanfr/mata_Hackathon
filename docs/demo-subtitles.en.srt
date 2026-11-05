@@ -1,0 +1,96 @@
+1
+00:00:00,500 --> 00:00:06,500
+AI can write a performance fix in seconds,
+but it can't prove it.
+
+2
+00:00:06,500 --> 00:00:13,000
+Here a Meta model proposes the fix,
+
+3
+00:00:13,000 --> 00:00:20,000
+and a Rust harness proves it, or refuses it.
+
+4
+00:00:20,000 --> 00:00:28,000
+Muse Spark 1.3 reads metrics, slow requests
+and the source code through tools.
+
+5
+00:00:28,000 --> 00:00:36,000
+It separates facts from hypotheses
+
+6
+00:00:36,000 --> 00:00:45,000
+and proposes one hypothesis and one patch.
+
+7
+00:00:45,000 --> 00:00:52,000
+The harness builds it in an isolated container
+with no internet and no secrets,
+
+8
+00:00:52,000 --> 00:00:58,000
+checks every response against the original,
+and measures it against the unchanged service.
+
+9
+00:00:58,000 --> 00:01:05,000
+The verdict comes from Rust, not the model:
+SQL per request 82 -> 3, p95 down about 89%.
+
+10
+00:01:05,000 --> 00:01:12,000
+It doesn't pass everything. The model's first patch
+didn't match the source and was refused before running.
+
+11
+00:01:12,000 --> 00:01:20,000
+The model read why, fixed it, and passed.
+
+12
+00:01:20,000 --> 00:01:35,000
+We tested the harness itself: 23 trap patches,
+each built to fail one gate. All were caught.
+
+13
+00:01:35,000 --> 00:01:45,000
+Same loop for security: a SQL injection fix passes
+only if every attack is blocked,
+
+14
+00:01:45,000 --> 00:01:55,000
+including attacks the model never saw.
+5 of 5 runs passed.
+
+15
+00:01:55,000 --> 00:02:03,000
+Reviewing our own harness, we found a patch could fake
+a 45-67% speedup by slowing the baseline.
+
+16
+00:02:03,000 --> 00:02:10,000
+Freezing the idle service closed that hole.
+
+17
+00:02:10,000 --> 00:02:25,000
+We planted prompt injections in the code and logs.
+All 3 runs flagged them. No model followed them.
+
+18
+00:02:25,000 --> 00:02:35,000
+Once a week, the model hunts for vulnerabilities.
+
+19
+00:02:35,000 --> 00:02:45,000
+It found the right place, but its attack proved nothing,
+so the harness did not accept it.
+
+20
+00:02:45,000 --> 00:02:53,000
+It runs every day on its own and reports to Discord.
+
+21
+00:02:53,000 --> 00:03:00,000
+AI proposes. Rust proves.
+
